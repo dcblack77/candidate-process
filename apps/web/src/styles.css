@@ -1,0 +1,453 @@
+/* Estilos globales de la SPA local (sin UI kits). */
+
+:root {
+    --color-bg: #f6f7f9;
+    --color-surface: #ffffff;
+    --color-border: #d9dee5;
+    --color-text: #1f2933;
+    --color-text-muted: #616e7c;
+    --color-primary: #2450a4;
+    --color-primary-hover: #1b3d7e;
+    --color-danger: #b3261e;
+    --color-danger-soft: #fdecea;
+    --color-warning: #8a5a00;
+    --color-warning-soft: #fff4d6;
+    --color-success: #1d6f42;
+    --color-success-soft: #e2f4e9;
+    --color-info-soft: #e5edfb;
+    --color-neutral-soft: #eceff3;
+    --radius: 8px;
+    --shadow: 0 1px 3px rgba(31, 41, 51, 0.12);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color-scheme: light;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    line-height: 1.5;
+}
+
+/* ── Layout ── */
+
+.app-header {
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    padding: 0.6rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    flex-wrap: wrap;
+}
+
+.app-header .brand {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.app-nav {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+}
+
+.app-nav a {
+    color: var(--color-text-muted);
+    text-decoration: none;
+    padding: 0.35rem 0.75rem;
+    border-radius: var(--radius);
+    font-size: 0.95rem;
+}
+
+.app-nav a:hover {
+    background: var(--color-neutral-soft);
+    color: var(--color-text);
+}
+
+.app-nav a.active {
+    background: var(--color-info-soft);
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+.app-main {
+    max-width: 68rem;
+    margin: 0 auto;
+    padding: 1.5rem;
+}
+
+.page-title {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+}
+
+/* ── Tarjetas y secciones ── */
+
+.card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.card h2 {
+    margin-top: 0;
+    font-size: 1.15rem;
+}
+
+.card h3 {
+    font-size: 1rem;
+    margin-bottom: 0.35rem;
+}
+
+.muted {
+    color: var(--color-text-muted);
+}
+
+.small {
+    font-size: 0.85rem;
+}
+
+/* ── Formularios ── */
+
+label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    font-size: 0.9rem;
+}
+
+input[type="text"],
+input[type="number"],
+textarea {
+    width: 100%;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+    background: var(--color-surface);
+}
+
+input:focus,
+textarea:focus {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+}
+
+.field {
+    margin-bottom: 1rem;
+}
+
+.field-inline {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.checkbox-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.checkbox-row label {
+    font-weight: 400;
+    margin: 0;
+}
+
+/* ── Botones ── */
+
+button {
+    font: inherit;
+    padding: 0.45rem 0.9rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+    background: var(--color-neutral-soft);
+}
+
+button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+button.primary {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+}
+
+button.primary:hover:not(:disabled) {
+    background: var(--color-primary-hover);
+}
+
+button.danger {
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+    color: #fff;
+}
+
+button.danger:hover:not(:disabled) {
+    background: #8f1d17;
+}
+
+button.link-like {
+    border: none;
+    background: none;
+    color: var(--color-primary);
+    padding: 0.2rem 0.35rem;
+    text-decoration: underline;
+}
+
+/* ── Tablas ── */
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--color-surface);
+}
+
+th,
+td {
+    text-align: left;
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: top;
+}
+
+th {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-text-muted);
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+/* ── Badges de estado ── */
+
+.badge {
+    display: inline-block;
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.badge-pending {
+    background: var(--color-neutral-soft);
+    color: var(--color-text-muted);
+}
+
+.badge-extracting,
+.badge-analyzing {
+    background: var(--color-info-soft);
+    color: var(--color-primary);
+}
+
+.badge-summarized {
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
+}
+
+.badge-analyzed {
+    background: var(--color-success-soft);
+    color: var(--color-success);
+}
+
+.badge-failed {
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+}
+
+.badge-warning {
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
+}
+
+.badge-neutral {
+    background: var(--color-neutral-soft);
+    color: var(--color-text-muted);
+}
+
+/* ── Spinner ── */
+
+.spinner {
+    display: inline-block;
+    width: 0.9rem;
+    height: 0.9rem;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Alertas ── */
+
+.alert {
+    border-radius: var(--radius);
+    padding: 0.65rem 0.9rem;
+    margin: 0.75rem 0;
+    font-size: 0.92rem;
+}
+
+.alert-error {
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+    border: 1px solid #f2b8b5;
+}
+
+.alert-warning {
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
+    border: 1px solid #ecd9a0;
+}
+
+.alert-success {
+    background: var(--color-success-soft);
+    color: var(--color-success);
+    border: 1px solid #b5dfc4;
+}
+
+/* ── Evidencias explicit vs inferred (§13: distinción visual clara) ── */
+
+.evidence-list {
+    list-style: none;
+    padding: 0;
+    margin: 0.25rem 0 0.75rem;
+}
+
+.evidence-item {
+    padding: 0.4rem 0.6rem;
+    border-radius: var(--radius);
+    margin-bottom: 0.35rem;
+    font-size: 0.92rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+}
+
+.evidence-explicit {
+    background: var(--color-success-soft);
+    border-left: 4px solid var(--color-success);
+    color: var(--color-text);
+    font-weight: 500;
+}
+
+.evidence-inferred {
+    background: var(--color-neutral-soft);
+    border-left: 4px dashed var(--color-text-muted);
+    color: var(--color-text-muted);
+    font-style: italic;
+    opacity: 0.85;
+}
+
+.evidence-tag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+.evidence-explicit .evidence-tag {
+    color: var(--color-success);
+}
+
+.evidence-inferred .evidence-tag {
+    color: var(--color-text-muted);
+}
+
+/* ── Preguntas colapsables ── */
+
+details.question {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    margin-bottom: 0.5rem;
+    background: var(--color-surface);
+}
+
+details.question summary {
+    cursor: pointer;
+    padding: 0.6rem 0.85rem;
+    font-weight: 600;
+}
+
+details.question .question-body {
+    padding: 0 0.85rem 0.85rem;
+    border-top: 1px solid var(--color-border);
+}
+
+details.question dt {
+    font-weight: 700;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-text-muted);
+    margin-top: 0.6rem;
+}
+
+details.question dd {
+    margin: 0.15rem 0 0;
+}
+
+/* ── Export ── */
+
+pre.export-preview {
+    background: #10161d;
+    color: #e6edf3;
+    border-radius: var(--radius);
+    padding: 1rem;
+    max-height: 26rem;
+    overflow: auto;
+    font-size: 0.82rem;
+    white-space: pre-wrap;
+}
+
+/* ── Score inputs ── */
+
+.score-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.final-score {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--color-primary);
+}
+
+.actions-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}

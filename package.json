@@ -8,8 +8,13 @@
     "pnpm": ">=11.0.0"
   },
   "scripts": {
-    "dev": "pnpm --filter api dev",
+    "dev": "concurrently -n api,web -c blue,green \"pnpm --filter api dev\" \"pnpm --filter web dev\"",
+    "dev:api": "pnpm --filter api dev",
+    "dev:web": "pnpm --filter web dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
   }
 }
