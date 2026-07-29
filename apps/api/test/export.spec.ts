@@ -78,8 +78,10 @@ describe("POST /export", () => {
         ).run(
             JSON.stringify({
                 criteria: {
+                    // Con veredicto del contraste CV/entrevista (§13).
                     adaptability: {
                         rationale: "Transiciones reales.",
+                        verdict: "confirmed",
                         evidence: [
                             {
                                 text: "FORTALEZA-EXPLICITA: migró Java a Node.",
@@ -91,6 +93,17 @@ describe("POST /export", () => {
                             },
                         ],
                     },
+                    depth: {
+                        rationale: "El CV prometía más de lo que demostró.",
+                        verdict: "not_demonstrated",
+                        evidence: [],
+                    },
+                    production: {
+                        rationale: "La entrevista contradice el CV.",
+                        verdict: "contradicted",
+                        evidence: [],
+                    },
+                    // `stack` sin verdict: análisis antiguo, debe tolerarse.
                 },
                 doubts: ["Validar profundidad."],
                 risks: ["RIESGO: poca operación en producción."],
@@ -135,7 +148,19 @@ describe("POST /export", () => {
             );
             expect(content).toContain("## Ranking");
             expect(content).toContain("Ana Ejemplo");
-            expect(content).toContain("| Adaptabilidad | 30% | 5 |");
+            // Tabla por criterio con el veredicto del contraste (§13).
+            expect(content).toContain(
+                "| Criterio | Peso | Score | Entrevista |",
+            );
+            expect(content).toContain(
+                "| Adaptabilidad | 30% | 5 | ✓ confirmado |",
+            );
+            expect(content).toContain(
+                "| Profundidad | 20% | 3 | ⚠ no demostrado |",
+            );
+            expect(content).toContain("| Producción | 15% | 3 | ⚠ contradicho |");
+            // Criterio sin verdict persistido (análisis antiguo): "—".
+            expect(content).toContain("| Stack | 10% | 2 | — |");
             expect(content).toContain(
                 "Resumen profesional breve de Ana Ejemplo.",
             );
@@ -208,7 +233,7 @@ describe("POST /export", () => {
     });
 
     describe("notas de entrevista (numéricas: no son dato sensible)", () => {
-        it("la tabla de ranking lleva columna Entrevista con la nota global", async () => {
+        it("la tabla de ranking lleva CV, Entrevista y Score final combinado", async () => {
             await createProcess();
             await seedScoredCandidate("Ana Ejemplo");
 
@@ -217,13 +242,22 @@ describe("POST /export", () => {
 
             const content: string = res.body.content;
             expect(content).toContain(
-                "| Posición | Candidato | Score final | Entrevista | Confianza |",
+                "| Posición | Candidato | CV | Entrevista | Score final | Confianza |",
             );
             // Única respuesta puntuada (adaptabilidad, 8) → global 8.0.
+            // Combinado: 3.75*0.30 + 4.0*0.70 = 1.125 + 2.8 = 3.93.
             expect(content).toContain(
-                "| 1 | Ana Ejemplo | 3.75 | 8.0 | 0.80 |",
+                "| 1 | Ana Ejemplo | 3.75 | 8.0 | 3.93 | 0.80 |",
+            );
+            // La nota de la tabla explica los pesos del combinado.
+            expect(content).toContain(
+                "Score final = CV 30% + entrevista 70% (nota /2, escala 1-5).",
+            );
+            expect(content).toContain(
+                "Pesos de la rúbrica (score de CV): Adaptabilidad 30%",
             );
         });
+
 
         it("la sección por candidato resume la entrevista por criterio", async () => {
             await createProcess();
@@ -239,7 +273,7 @@ describe("POST /export", () => {
             expect(content).toContain("| Stack | — | 0 |");
         });
 
-        it("candidato sin respuestas puntuadas: '—' en la tabla y sin sección de entrevista", async () => {
+        it("candidato sin respuestas puntuadas: score final provisional, '—' en Entrevista y sin sección de entrevista", async () => {
             await createProcess();
             const id = await createCandidate("Sin Entrevista");
             await request
@@ -255,7 +289,14 @@ describe("POST /export", () => {
 
             const content: string = (await request.post("/export").send({}))
                 .body.content;
-            expect(content).toContain("| 1 | Sin Entrevista | 3.00 | — | — |");
+            // Sin entrevista el combinado es el score de CV, marcado con *.
+            expect(content).toContain(
+                "| 1 | Sin Entrevista | 3.00 | — | 3.00* | — |",
+            );
+            expect(content).toContain("\\* Score provisional");
+            expect(content).toContain(
+                "Score final: **3.00** (provisional: sin entrevista puntuada)",
+            );
             expect(content).not.toContain("### Entrevista");
         });
     });

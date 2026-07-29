@@ -22,6 +22,8 @@ import { parseJsonColumn } from "../scoring/scoring.dto";
 import {
     computeFinalScore,
     CriterionScores,
+    CV_WEIGHT,
+    INTERVIEW_WEIGHT,
     rankEntries,
     WEIGHTS,
 } from "../scoring/weights";
@@ -41,9 +43,10 @@ const KEY_QUESTIONS_COUNT = 3;
 
 /**
  * GET /ranking (BLUEPRINT §15): todos los candidatos no borrados del proceso
- * activo con puntuación completa, ordenados con rankEntries (weights.ts es la
- * única fuente de pesos y desempates). Los candidatos sin puntuación se
- * listan aparte en `unscored`. Sin proceso activo → 404.
+ * activo con puntuación completa, ordenados con rankEntries por el score
+ * final COMBINADO 30% CV / 70% entrevista (weights.ts es la única fuente de
+ * pesos y desempates). Los candidatos sin puntuación se listan aparte en
+ * `unscored`. Sin proceso activo → 404.
  */
 @injectable()
 export class GetRankingUseCase {
@@ -67,7 +70,7 @@ export class GetRankingUseCase {
             candidate: CandidateRow;
             score: CandidateScoreRow;
             scores: CriterionScores;
-            finalScore: number;
+            cvScore: number;
             questions: InterviewQuestionRow[];
             interview: InterviewScore;
             interviewScore: number | null;
@@ -103,7 +106,7 @@ export class GetRankingUseCase {
                 scores: criterionScores,
                 // Defensa en profundidad: se recalcula aquí también, por si la
                 // fila viniera de una edición parcial antigua sin final_score.
-                finalScore:
+                cvScore:
                     score.final_score ?? computeFinalScore(criterionScores),
                 questions,
                 interview,
@@ -117,7 +120,11 @@ export class GetRankingUseCase {
                 position: entry.position,
                 candidateId: entry.candidate.id,
                 name: entry.candidate.name,
-                finalScore: entry.finalScore,
+                cvScore: entry.cvScore,
+                // Alias histórico que aún consume el frontend; mismo valor.
+                finalScore: entry.cvScore,
+                overallScore: entry.overallScore,
+                provisional: entry.provisional,
                 scores: entry.scores,
                 confidence: entry.confidence,
                 evidenceSummary: briefEvidenceSummary(entry.score),
@@ -132,7 +139,12 @@ export class GetRankingUseCase {
             }),
         );
 
-        return { weights: WEIGHTS, entries, unscored };
+        return {
+            weights: WEIGHTS,
+            scoreWeights: { cv: CV_WEIGHT, interview: INTERVIEW_WEIGHT },
+            entries,
+            unscored,
+        };
     }
 }
 

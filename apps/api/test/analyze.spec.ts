@@ -2,6 +2,7 @@ import { Server } from "node:http";
 import { createModule, interfaces } from "@expressots/core";
 import supertest from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { CRITERIA } from "../src/ai/schemas/common";
 import { App } from "../src/app";
 import { Database, DB } from "../src/db/database";
 import { AppEnv, ENV, loadEnv } from "../src/env";
@@ -53,13 +54,16 @@ function seededSummary() {
  * afirma un score final absurdo. El backend debe ignorarlo y calcular
  * 5*0.30 + 4*0.25 + 3*0.20 + 2*0.15 + 1*0.10 = 3.5.
  */
-function validAnalysis() {
+function validAnalysis(verdict?: string) {
     const criterion = (score: number, rationale: string) => ({
         score,
         rationale,
         evidence: [
             { text: "Evidencia explícita del resumen.", type: "explicit" },
         ],
+        // Sin verdict explícito se omite el campo: así este helper sigue
+        // representando una salida ANTIGUA del modelo (compatibilidad).
+        ...(verdict === undefined ? {} : { verdict }),
     });
     return {
         scores: {
@@ -295,6 +299,188 @@ describe("POST /candidates/:id/analyze", () => {
             expect(scoreRow(id)).toMatchObject({
                 manual_notes: "Nota privada previa",
             });
+        });
+    });
+
+    describe("contraste con la entrevista (§13)", () => {
+        /** Pregunta persistida con su respuesta puntuada. */
+        function seedAnsweredQuestion(
+            candidateId: string,
+            criterion: string,
+            answerScore: number,
+            notes: string,
+        ): void {
+            db.prepare(
+                `INSERT INTO interview_question
+                     (id, candidate_id, criterion, dimension, question, ideal_answer,
+                      answer_score, answer_notes, answered_at)
+                 VALUES (?, ?, ?, 'velocidad', ?, ?, ?, ?, '2026-07-29T00:00:00.000Z')`,
+            ).run(
+                newId(),
+                candidateId,
+                criterion,
+                `PREGUNTA-${criterion.toUpperCase()}: cuéntame una transición.`,
+                `RESPUESTA-IDEAL-${criterion.toUpperCase()}`,
+                answerScore,
+                `NOTAS-EVALUADOR-${criterion.toUpperCase()}`,
+            );
+        }
+
+        it("con respuestas puntuadas el prompt lleva el contexto de entrevista", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedSummary(id);
+            seedAnsweredQuestion(id, "adaptability", 3, "flojo");
+            seedAnsweredQuestion(id, "stack", 9, "sólido");
+
+            responder = () => chatCompletion(validAnalysis("not_demonstrated"));
+            await request.post(`/candidates/${id}/analyze`).expect(200);
+
+            const prompt = mock.requests[0].body.messages[0].content;
+            // Criterio, enunciado, respuesta ideal, nota y notas del evaluador.
+            expect(prompt).toContain("Respuestas puntuadas: 2 de 2 preguntas");
+            expect(prompt).toContain("Adaptabilidad (`adaptability`)");
+            expect(prompt).toContain(
+                "PREGUNTA-ADAPTABILITY: cuéntame una transición.",
+            );
+            expect(prompt).toContain("RESPUESTA-IDEAL-ADAPTABILITY");
+            expect(prompt).toContain("Nota del evaluador: 3/10");
+            expect(prompt).toContain("NOTAS-EVALUADOR-ADAPTABILITY");
+            expect(prompt).toContain("Nota del evaluador: 9/10");
+            expect(prompt).not.toContain(
+                "Sin respuestas de entrevista puntuadas",
+            );
+            expect(prompt).not.toContain("{{");
+        });
+
+        it("las preguntas SIN nota no viajan al prompt (no son evidencia)", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedSummary(id);
+            db.prepare(
+                `INSERT INTO interview_question (id, candidate_id, criterion, dimension, question)
+                 VALUES (?, ?, 'depth', 'velocidad', 'PREGUNTA-SIN-NOTA')`,
+            ).run(newId(), id);
+
+            await request.post(`/candidates/${id}/analyze`).expect(200);
+
+            const prompt = mock.requests[0].body.messages[0].content;
+            expect(prompt).not.toContain("PREGUNTA-SIN-NOTA");
+            expect(prompt).toContain("Sin respuestas de entrevista puntuadas");
+        });
+
+        it("sin respuestas puntuadas el prompt NO lleva contexto y los verdict quedan en not_assessed", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedSummary(id);
+
+            // Aunque el modelo se invente un veredicto, sin entrevista no hay
+            // contraste posible: el backend lo normaliza a not_assessed.
+            responder = () => chatCompletion(validAnalysis("confirmed"));
+            const res = await request.post(`/candidates/${id}/analyze`);
+
+            expect(res.status).toBe(200);
+            const prompt = mock.requests[0].body.messages[0].content;
+            expect(prompt).toContain("Sin respuestas de entrevista puntuadas");
+            expect(prompt).not.toContain("Nota del evaluador");
+
+            for (const criterion of CRITERIA) {
+                expect(res.body.suggestedScores[criterion].verdict).toBe(
+                    "not_assessed",
+                );
+            }
+            const summary = JSON.parse(
+                scoreRow(id)?.evidence_summary as string,
+            );
+            expect(summary.criteria.adaptability.verdict).toBe("not_assessed");
+        });
+
+        it("con entrevista, los verdict del modelo se persisten y se devuelven", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedSummary(id);
+            seedAnsweredQuestion(id, "adaptability", 3, "flojo");
+
+            responder = () => chatCompletion(validAnalysis("not_demonstrated"));
+            const res = await request.post(`/candidates/${id}/analyze`);
+
+            expect(res.status).toBe(200);
+            expect(res.body.suggestedScores.adaptability.verdict).toBe(
+                "not_demonstrated",
+            );
+            const summary = JSON.parse(
+                scoreRow(id)?.evidence_summary as string,
+            );
+            expect(summary.criteria.stack.verdict).toBe("not_demonstrated");
+
+            // GET /candidates/:id expone los veredictos ya tipados.
+            const detail = await request.get(`/candidates/${id}`);
+            expect(detail.body.score.verdicts).toEqual({
+                adaptability: "not_demonstrated",
+                fundamentals: "not_demonstrated",
+                depth: "not_demonstrated",
+                production: "not_demonstrated",
+                stack: "not_demonstrated",
+            });
+        });
+
+        it("compatibilidad: una salida SIN verdict sigue siendo válida (not_assessed)", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedSummary(id);
+            seedAnsweredQuestion(id, "adaptability", 8, "bien");
+
+            // validAnalysis() sin argumento no emite el campo `verdict`.
+            const res = await request.post(`/candidates/${id}/analyze`);
+
+            expect(res.status).toBe(200);
+            expect(res.body.suggestedScores.adaptability.verdict).toBe(
+                "not_assessed",
+            );
+        });
+
+        it("la respuesta trae el score combinado 30/70 y provisional", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedSummary(id);
+
+            const withoutInterview = await request.post(
+                `/candidates/${id}/analyze`,
+            );
+            expect(withoutInterview.status).toBe(200);
+            expect(withoutInterview.body).toMatchObject({
+                cvScore: EXPECTED_FINAL_SCORE,
+                finalScore: EXPECTED_FINAL_SCORE,
+                interviewScore: null,
+                overallScore: EXPECTED_FINAL_SCORE,
+                provisional: true,
+            });
+
+            // Con entrevista de 8: 3.5*0.30 + 4.0*0.70 = 1.05 + 2.80 = 3.85.
+            seedAnsweredQuestion(id, "adaptability", 8, "bien");
+            const withInterview = await request.post(
+                `/candidates/${id}/analyze`,
+            );
+            expect(withInterview.body).toMatchObject({
+                cvScore: EXPECTED_FINAL_SCORE,
+                interviewScore: 8,
+                overallScore: 3.85,
+                provisional: false,
+            });
+        });
+
+        it("las notas del evaluador NO se filtran a la auditoría (§17)", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedSummary(id);
+            seedAnsweredQuestion(id, "adaptability", 3, "flojo");
+
+            await request.post(`/candidates/${id}/analyze`).expect(200);
+
+            const events = eventsByAction(db, "candidate.analyzed");
+            const metadata = events[0].metadata as string;
+            expect(metadata).not.toContain("NOTAS-EVALUADOR");
+            expect(JSON.parse(metadata).interviewAnswers).toBe(1);
         });
     });
 

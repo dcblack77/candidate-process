@@ -15,8 +15,10 @@ import { WEIGHTS } from "./weights";
  *   (media_adaptabilidad * 0.30 + media_stack * 0.10) / 0.40.
  * - Sin ninguna respuesta puntuada, el global es null.
  *
- * Esta nota NO entra en la fórmula del score final (§06): solo se usa como
- * criterio de desempate del ranking (§15) y como información del detalle.
+ * Esta nota NO entra en la fórmula de la RÚBRICA (§06, primer nivel: el score
+ * de CV se calcula solo con los cinco criterios). Sí entra —con peso 70%— en
+ * el score final COMBINADO (§06, segundo nivel, `computeOverallScore` en
+ * weights.ts), que es el que ordena el ranking (§15).
  */
 
 /** Valor mínimo de la nota de una respuesta. */

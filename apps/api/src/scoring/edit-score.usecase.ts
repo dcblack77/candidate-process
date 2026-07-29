@@ -5,6 +5,8 @@ import {
     ProcessRepository,
     requireActiveProcess,
 } from "../process/process.repository";
+import { QuestionRepository } from "../questions/question.repository";
+import { interviewScoreOf } from "../questions/questions.dto";
 import { AuditRepository } from "../shared/audit";
 import { AppError } from "../shared/errors";
 import { assertValidId } from "../shared/ids";
@@ -34,6 +36,8 @@ export class EditScoreUseCase {
         @inject(CandidateRepository)
         private readonly candidates: CandidateRepository,
         @inject(ScoreRepository) private readonly scores: ScoreRepository,
+        @inject(QuestionRepository)
+        private readonly questions: QuestionRepository,
         @inject(AuditRepository) private readonly audit: AuditRepository,
     ) {}
 
@@ -90,6 +94,9 @@ export class EditScoreUseCase {
                 .join(","),
         });
 
-        return toCandidateScoreDTO(row);
+        // El combinado (§06) necesita la nota de entrevista, que vive en las
+        // preguntas: se lee aquí para que la respuesta del PATCH ya la lleve.
+        const interview = interviewScoreOf(this.questions.listByCandidate(id));
+        return toCandidateScoreDTO(row, interview.overall);
     }
 }

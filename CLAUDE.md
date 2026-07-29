@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pnpm install                 # instalar (workspace pnpm: apps/api + apps/web)
 pnpm dev                     # API (127.0.0.1:3010) + UI (127.0.0.1:5173) en paralelo
 pnpm dev:api / pnpm dev:web  # cada app por separado
-pnpm test                    # suite completa; api: 235 tests, web: 16
+pnpm test                    # suite completa; api: 261 tests, web: 16
 pnpm --filter api test -- <patrón>   # un spec concreto (p. ej. -- weights, -- cv)
 pnpm build                   # tsc estricto + bundle de web
 pnpm --filter api lint       # eslint del backend
@@ -25,7 +25,7 @@ Los tests del backend usan SQLite `:memory:` y un mock HTTP de llama.cpp — nun
 - **DB**: better-sqlite3 síncrono, SQL directo, migrador propio (`db/migrate.ts` + `db/migrations/NNN_*.sql`). WAL + foreign_keys ON. El single-active-process está forzado por índice único parcial.
 - **IA** `apps/api/src/ai/`: `LlmClient` (response_format json_schema + zod, reintentos con temperatura 0.2→0.4, cola de concurrencia 1, presupuesto de tokens). Prompts en `prompts/*.md` (raíz), cargados por `PromptLoader`; los comentarios HTML iniciales se eliminan antes de enviar.
 - **Frontend** `apps/web`: React + Vite, sin librerías de estado ni UI kits; CSS global con variables. Proxy `/api` → 127.0.0.1:3010. Tipos espejo de los DTOs en `src/api/types.ts` — si cambia un DTO del backend, actualizar el espejo. La UI escucha en 0.0.0.0 (accesible desde la LAN, decisión explícita del usuario del 2026-07-29; `WEB_HOST=127.0.0.1` la devuelve a solo-local); la API sigue solo en localhost y se alcanza únicamente vía el proxy.
-- `scoring/weights.ts` es la ÚNICA fuente de pesos y desempates; el modelo nunca calcula el score final (el backend lo recalcula siempre) y el frontend consume los pesos vía `GET /ranking`.
+- `scoring/weights.ts` es la ÚNICA fuente de pesos (rúbrica y combinado 30/70) y desempates; el modelo nunca calcula el score final (el backend lo recalcula siempre) y el frontend consume los pesos vía `GET /ranking` (`weights` y `scoreWeights`).
 - Límite de 5 regeneraciones de análisis = COUNT de `app_event` con `action='candidate.analyzed'`; 20 preguntas = COUNT en tabla; 10 exports/sesión = contador en memoria.
 - Errores: `AppError` con códigos tipados (`shared/errors.ts`) → `{error:{code,message}}`; los errores no controlados se loguean sin mensaje (solo tipo + frames).
 
@@ -64,13 +64,20 @@ Cinco criterios, cada uno puntuado de 1 a 5:
 | Producción | 15% | `production` |
 | Stack (AWS/TypeScript/serverless) | 10% | `stack` |
 
+El score tiene **dos niveles** (§06) y ambos viven en `scoring/weights.ts`:
+
 ```text
-score_final = adaptabilidad*0.30 + fundamentos*0.25 + profundidad*0.20 + produccion*0.15 + stack*0.10
+score_cv    = adaptabilidad*0.30 + fundamentos*0.25 + profundidad*0.20 + produccion*0.15 + stack*0.10
+score_final = score_cv*0.30 + (nota_entrevista/2)*0.70     # combinado, DERIVADO
 ```
 
-Desempate, en orden: adaptabilidad → fundamentos → producción → profundidad → stack → **entrevista** → confianza → revisión manual. Los pesos y el orden de desempate viven en un único sitio del código; no duplicarlos.
+`score_cv` (`computeFinalScore`) es lo que promete el CV y es lo único que se persiste (`candidate_score.final_score`). `score_final` (`computeOverallScore`) es lo que el candidato demostró: nunca se persiste, se recalcula en cada lectura, y es lo que ordena el ranking. Sin entrevista puntuada, `score_final = score_cv` y la entrada se marca `provisional: true` (no se penaliza a quien aún no fue entrevistado).
 
-La **nota de entrevista** (§15) es independiente del score final: cada `interview_question` admite `answer_score` (entero 1-10) y `answer_notes` (texto privado). `scoring/interview-score.ts` promedia por criterio y agrega con los pesos de `weights.ts` **renormalizados** sobre los criterios con respuestas; sin respuestas puntuadas vale `null` y cuenta como 0 al desempatar. Las notas numéricas salen en el export; el texto de `answer_notes` solo con `include.privateNotes`.
+Desempate del combinado, en orden: adaptabilidad → fundamentos → producción → profundidad → stack → **entrevista** → confianza → revisión manual. Los pesos y el orden de desempate viven en un único sitio del código; no duplicarlos.
+
+La **nota de entrevista** (§15) no altera `score_cv` pero pesa el 70% de `score_final`: cada `interview_question` admite `answer_score` (entero 1-10) y `answer_notes` (texto privado). `scoring/interview-score.ts` promedia por criterio y agrega con los pesos de `weights.ts` **renormalizados** sobre los criterios con respuestas; sin respuestas puntuadas vale `null`. Las notas numéricas salen en el export; el texto de `answer_notes` solo con `include.privateNotes`.
+
+`/analyze` **contrasta el CV con la entrevista** (§13): si hay ≥1 respuesta puntuada, `scoring/interview-context.ts` monta el bloque `{{interview_context}}` del prompt (por criterio: pregunta, respuesta ideal, nota 1-10 y notas del evaluador, truncadas a 300/300/400 caracteres) y el modelo debe BAJAR los criterios que no se demostraron. Cada criterio devuelve `verdict` (`confirmed` | `not_demonstrated` | `contradicted` | `not_assessed`), que se persiste en `evidence_summary.criteria[*]`. Sin respuestas puntuadas todo queda en `not_assessed` y el comportamiento es el de siempre; los análisis antiguos sin `verdict` se leen como `null`.
 
 ## Arquitectura prevista
 

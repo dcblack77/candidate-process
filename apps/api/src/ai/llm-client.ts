@@ -56,8 +56,13 @@ export interface CompleteParams<T> {
     variables: Record<string, string>;
     /** JSON Schema para la gramática de llama.cpp (response_format). */
     schema: Record<string, unknown>;
-    /** Schema zod espejo: valida la respuesta y tipa el resultado. */
-    zodSchema: z.ZodType<T>;
+    /**
+     * Schema zod espejo: valida la respuesta y tipa el resultado. La entrada
+     * es `unknown` (JSON recién parseado), no `T`: así el schema puede
+     * transformar o rellenar valores por defecto (p. ej. el `verdict` de
+     * score-candidate) sin que el tipo de salida deje de ser exacto.
+     */
+    zodSchema: z.ZodType<T, z.ZodTypeDef, unknown>;
 }
 
 /** Forma mínima de la respuesta de /v1/chat/completions. */
@@ -156,7 +161,7 @@ export class LlmClient {
         promptName: string,
         renderedPrompt: string,
         schema: Record<string, unknown>,
-        zodSchema: z.ZodType<T>,
+        zodSchema: z.ZodType<T, z.ZodTypeDef, unknown>,
         temperature: number,
     ): Promise<T> {
         const response = await fetch(

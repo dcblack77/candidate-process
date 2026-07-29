@@ -34,7 +34,7 @@ Scripts útiles:
 pnpm dev:api            # solo API
 pnpm dev:web            # solo frontend
 pnpm test               # suite completa (api + web)
-pnpm --filter api test  # solo backend (190 tests)
+pnpm --filter api test  # solo backend (261 tests)
 pnpm --filter web test  # solo frontend (16 tests)
 pnpm build              # build de ambas apps
 bash scripts/smoke.sh   # smoke E2E contra la API y el modelo real (API arrancada antes)

@@ -101,6 +101,7 @@ describe("prompts/ del repo", () => {
                 cv_summary_json: "{}",
                 role_title: "ROL",
                 role_context: "CONTEXTO",
+                interview_context: "SIN ENTREVISTA",
             },
         ],
         [

@@ -1,15 +1,23 @@
 import { Criterion, CRITERIA } from "../ai/schemas/common";
+import { CriterionVerdict } from "../ai/schemas/score-candidate";
 import { InterviewScore } from "../scoring/interview-score";
-import { CriterionScores, WEIGHTS } from "../scoring/weights";
+import {
+    CriterionScores,
+    CV_WEIGHT,
+    INTERVIEW_WEIGHT,
+    WEIGHTS,
+} from "../scoring/weights";
 import { ExportInclude } from "./export.dto";
 
 /**
  * Construcción del documento markdown de exportación (BLUEPRINT §19).
  *
- * El documento es "limpio y limitado": ranking, score final y por criterio,
- * resumen breve, fortalezas (evidencias explícitas más fuertes), riesgos y
- * preguntas recomendadas. Notas privadas SOLO si include.privateNotes=true.
- * El texto extraído del CV no se persiste, así que nunca puede incluirse.
+ * El documento es "limpio y limitado": ranking (score de CV, nota de
+ * entrevista y score final combinado), score por criterio con el veredicto
+ * del contraste, resumen breve, fortalezas (evidencias explícitas más
+ * fuertes), riesgos y preguntas recomendadas. Notas privadas SOLO si
+ * include.privateNotes=true. El texto extraído del CV no se persiste, así que
+ * nunca puede incluirse.
  *
  * Entrevista: las NOTAS NUMÉRICAS (global, por criterio y por pregunta) sí
  * salen en el export normal — son puntuación, no texto sensible. El TEXTO de
@@ -26,6 +34,14 @@ const CRITERION_LABELS: Record<Criterion, string> = {
     stack: "Stack",
 };
 
+/** Etiqueta del veredicto del contraste CV/entrevista (§13). */
+const VERDICT_LABELS: Record<CriterionVerdict, string> = {
+    confirmed: "✓ confirmado",
+    not_demonstrated: "⚠ no demostrado",
+    contradicted: "⚠ contradicho",
+    not_assessed: "—",
+};
+
 /** Pregunta recomendada y, si la hay, la evaluación de su respuesta. */
 export interface ExportQuestionData {
     question: string;
@@ -39,8 +55,15 @@ export interface ExportQuestionData {
 export interface ExportCandidateData {
     position: number;
     name: string;
-    finalScore: number;
+    /** Score de la rúbrica §06 (1-5): lo que promete el CV. */
+    cvScore: number;
+    /** Score final combinado 30% CV / 70% entrevista (§06). */
+    overallScore: number;
+    /** true si aún no tiene entrevista puntuada (combinado = score de CV). */
+    provisional: boolean;
     scores: CriterionScores;
+    /** Veredicto del contraste por criterio; null en análisis antiguos. */
+    verdicts: Record<Criterion, CriterionVerdict | null>;
     confidence: number | null;
     needsManualReview: boolean;
     /** Resumen profesional breve (del cv_summary), si existe. */
@@ -88,39 +111,53 @@ export function buildExportMarkdown(params: ExportDocumentParams): string {
         lines.push("## Ranking");
         lines.push("");
         lines.push(
-            "| Posición | Candidato | Score final | Entrevista | Confianza |",
+            "| Posición | Candidato | CV | Entrevista | Score final | Confianza |",
         );
-        lines.push("|---:|---|---:|---:|---:|");
+        lines.push("|---:|---|---:|---:|---:|---:|");
         for (const entry of entries) {
             const review = entry.needsManualReview ? " (revisión manual)" : "";
+            // El asterisco marca los provisionales; se explica bajo la tabla.
+            const overall = `${entry.overallScore.toFixed(2)}${entry.provisional ? "*" : ""}`;
             lines.push(
-                `| ${entry.position} | ${entry.name}${review} | ${entry.finalScore.toFixed(2)} | ${formatInterview(entry.interview.overall)} | ${formatConfidence(entry.confidence)} |`,
+                `| ${entry.position} | ${entry.name}${review} | ${entry.cvScore.toFixed(2)} | ${formatInterview(entry.interview.overall)} | ${overall} | ${formatConfidence(entry.confidence)} |`,
             );
         }
         if (entries.length === 0) {
-            lines.push("| — | Sin candidatos puntuados | — | — | — |");
+            lines.push("| — | Sin candidatos puntuados | — | — | — | — |");
         }
         lines.push("");
         if (unscoredNames.length > 0) {
             lines.push(`Sin puntuar: ${unscoredNames.join(", ")}.`);
             lines.push("");
         }
-        lines.push(`Pesos de la rúbrica: ${WEIGHTS_LINE}.`);
+        lines.push(`Score final = ${SCORE_WEIGHTS_LINE}.`);
+        lines.push("");
+        lines.push(
+            "\\* Score provisional: el candidato aún no tiene respuestas de " +
+                "entrevista puntuadas, así que su score final es solo el del CV.",
+        );
+        lines.push("");
+        lines.push(`Pesos de la rúbrica (score de CV): ${WEIGHTS_LINE}.`);
         lines.push("");
     }
 
     for (const entry of entries) {
         lines.push(`## ${entry.position}. ${entry.name}`);
         lines.push("");
-        lines.push(`Score final: **${entry.finalScore.toFixed(2)}**`);
+        lines.push(
+            `Score final: **${entry.overallScore.toFixed(2)}**` +
+                `${entry.provisional ? " (provisional: sin entrevista puntuada)" : ""}` +
+                ` — CV ${entry.cvScore.toFixed(2)} · Entrevista ${formatInterview(entry.interview.overall)}/10 · ${SCORE_WEIGHTS_LINE}`,
+        );
         lines.push("");
 
         if (include.scoresByCriterion) {
-            lines.push("| Criterio | Peso | Score |");
-            lines.push("|---|---:|---:|");
+            lines.push("| Criterio | Peso | Score | Entrevista |");
+            lines.push("|---|---:|---:|---|");
             for (const criterion of CRITERIA) {
+                const verdict = entry.verdicts[criterion];
                 lines.push(
-                    `| ${CRITERION_LABELS[criterion]} | ${Math.round(WEIGHTS[criterion] * 100)}% | ${entry.scores[criterion]} |`,
+                    `| ${CRITERION_LABELS[criterion]} | ${Math.round(WEIGHTS[criterion] * 100)}% | ${entry.scores[criterion]} | ${verdict === null ? "—" : VERDICT_LABELS[verdict]} |`,
                 );
             }
             lines.push("");
@@ -210,11 +247,16 @@ export function buildExportMarkdown(params: ExportDocumentParams): string {
     return lines.join("\n");
 }
 
-/** Línea con los pesos, generada desde WEIGHTS (única fuente). */
+/** Línea con los pesos de la rúbrica, desde WEIGHTS (única fuente). */
 const WEIGHTS_LINE = CRITERIA.map(
     (criterion) =>
         `${CRITERION_LABELS[criterion]} ${Math.round(WEIGHTS[criterion] * 100)}%`,
 ).join(", ");
+
+/** Línea con los pesos del combinado, desde weights.ts (única fuente). */
+const SCORE_WEIGHTS_LINE =
+    `CV ${Math.round(CV_WEIGHT * 100)}% + ` +
+    `entrevista ${Math.round(INTERVIEW_WEIGHT * 100)}% (nota /2, escala 1-5)`;
 
 function formatConfidence(confidence: number | null): string {
     return confidence === null ? "—" : confidence.toFixed(2);

@@ -22,6 +22,10 @@ const INCLUDE_LABELS: Record<keyof ExportInclude, string> = {
 
 /** Aclaración de qué cubre exactamente cada sección cuando no es obvio. */
 const INCLUDE_HINTS: Partial<Record<keyof ExportInclude, string>> = {
+    ranking:
+        "la tabla con las tres columnas (CV, entrevista y score final combinado), la fórmula del score final y el aviso de los candidatos con score provisional",
+    scoresByCriterion:
+        "el peso y la nota de cada criterio, y el veredicto del contraste CV/entrevista (confirmado, no demostrado o contradicho)",
     privateNotes:
         "notas privadas del evaluador y notas de las respuestas de entrevista",
     questions:

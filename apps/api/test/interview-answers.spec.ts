@@ -380,7 +380,7 @@ describe("PATCH /candidates/:id/questions/:questionId/answer", () => {
         });
     });
 
-    describe("GET /ranking: la entrevista desempata (§15)", () => {
+    describe("GET /ranking: la entrevista pesa en el score combinado (§06/§15)", () => {
         const EQUAL_SCORES = {
             adaptability: 3,
             fundamentals: 3,
@@ -424,13 +424,22 @@ describe("PATCH /candidates/:id/questions/:questionId/answer", () => {
             expect(
                 res.body.entries.map((e: { name: string }) => e.name),
             ).toEqual(["Entrevista Fuerte", "Entrevista Floja"]);
+            // Ya no es un desempate: la entrevista pesa el 70% del combinado,
+            // así que 0.90+3.15=4.05 contra 0.90+1.40=2.30 (§06).
             expect(res.body.entries[0]).toMatchObject({
+                cvScore: 3,
                 finalScore: 3,
                 interviewScore: 9,
-                tieBreakApplied: "interview",
+                overallScore: 4.05,
+                provisional: false,
+                tieBreakApplied: null,
                 needsManualReview: false,
             });
-            expect(res.body.entries[1].tieBreakApplied).toBe("interview");
+            expect(res.body.entries[1]).toMatchObject({
+                cvScore: 3,
+                interviewScore: 4,
+                overallScore: 2.3,
+            });
             expect(res.body.entries[0].interviewByCriterion).toEqual({
                 adaptability: { average: 9, answered: 1 },
                 fundamentals: null,
@@ -440,26 +449,33 @@ describe("PATCH /candidates/:id/questions/:questionId/answer", () => {
             });
         });
 
-        it("un candidato sin entrevista puntuada queda por detrás (null = 0)", async () => {
+        it("una entrevista floja hunde al candidato por debajo de quien no la tiene (provisional)", async () => {
             await createProcess();
             const none = await createCandidate("Sin Entrevista");
             const some = await createCandidate("Con Entrevista");
             await score(none);
             await score(some);
-            // Nota mínima posible: aun así basta para adelantar a quien no
-            // tiene ninguna evidencia de entrevista.
+            // Nota mínima posible: con el combinado (§06) esto ya no le
+            // adelanta, le penaliza (0.90+0.35=1.25 contra 3.00 provisional).
             await answer(some, "stack", 1);
 
             const res = await request.get("/ranking");
             expect(
                 res.body.entries.map((e: { name: string }) => e.name),
-            ).toEqual(["Con Entrevista", "Sin Entrevista"]);
-            expect(res.body.entries[0].interviewScore).toBe(1);
-            expect(res.body.entries[1].interviewScore).toBeNull();
-            expect(res.body.entries[0].tieBreakApplied).toBe("interview");
+            ).toEqual(["Sin Entrevista", "Con Entrevista"]);
+            expect(res.body.entries[0]).toMatchObject({
+                interviewScore: null,
+                overallScore: 3,
+                provisional: true,
+            });
+            expect(res.body.entries[1]).toMatchObject({
+                interviewScore: 1,
+                overallScore: 1.25,
+                provisional: false,
+            });
         });
 
-        it("la entrevista NO altera el score final ni el orden por score", async () => {
+        it("la entrevista NO altera el score de CV, y un CV excelente aguanta una buena entrevista ajena", async () => {
             await createProcess();
             const better = await createCandidate("Mejor CV");
             const worse = await createCandidate("Peor CV");
@@ -474,16 +490,23 @@ describe("PATCH /candidates/:id/questions/:questionId/answer", () => {
                 })
                 .expect(200);
             await score(worse);
-            // El de peor CV tiene la mejor entrevista: no adelanta.
+            // El de peor CV tiene la mejor entrevista posible: 0.90+3.50=4.40,
+            // que aún no alcanza al 5.00 provisional del CV perfecto.
             await answer(worse, "adaptability", 10);
 
             const res = await request.get("/ranking");
             expect(
                 res.body.entries.map((e: { name: string }) => e.name),
             ).toEqual(["Mejor CV", "Peor CV"]);
+            // El score de CV (rúbrica §06) no lo toca la entrevista.
+            expect(res.body.entries[0].cvScore).toBe(5);
             expect(res.body.entries[0].finalScore).toBe(5);
+            expect(res.body.entries[0].overallScore).toBe(5);
+            expect(res.body.entries[0].provisional).toBe(true);
             expect(res.body.entries[0].tieBreakApplied).toBeNull();
             expect(res.body.entries[1].interviewScore).toBe(10);
+            expect(res.body.entries[1].cvScore).toBe(3);
+            expect(res.body.entries[1].overallScore).toBe(4.4);
         });
 
         it("empate también en entrevista: sigue desempatando la confianza", async () => {

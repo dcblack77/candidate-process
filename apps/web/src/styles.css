@@ -562,3 +562,112 @@ pre.export-preview {
     color: var(--color-primary);
     white-space: nowrap;
 }
+
+/* ── Los dos niveles de score: CV vs combinado (§06) ── */
+
+/* El score final es el que ordena: se destaca sobre CV y entrevista. */
+.score-formula {
+    margin: 0 0 1rem;
+}
+
+.cv-cell {
+    white-space: nowrap;
+    color: var(--color-text-muted);
+}
+
+th.overall-header {
+    color: var(--color-primary);
+}
+
+.overall-cell {
+    white-space: nowrap;
+    background: var(--color-info-soft);
+}
+
+.overall-score {
+    font-size: 1.15rem;
+    color: var(--color-primary);
+}
+
+/* Score aún sin entrevista: no comparable con el de los ya entrevistados. */
+.badge-provisional {
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
+}
+
+.score-overview {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+    background: var(--color-info-soft);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 0.85rem 1rem;
+    margin-bottom: 1rem;
+}
+
+.score-box {
+    display: flex;
+    align-items: baseline;
+    gap: 0.2rem;
+    flex-wrap: wrap;
+    min-width: 9rem;
+}
+
+.score-box-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.score-box-final .score-box-value {
+    font-size: 2.2rem;
+}
+
+.score-box-scale {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+}
+
+.score-box-caption {
+    display: block;
+    flex-basis: 100%;
+}
+
+.score-op {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--color-text-muted);
+}
+
+.score-overview-note {
+    flex-basis: 100%;
+    margin: 0;
+}
+
+/* ── Veredicto del contraste CV/entrevista (§13) ── */
+
+.verdict-confirmed {
+    background: var(--color-success-soft);
+    color: var(--color-success);
+}
+
+.verdict-not-demonstrated {
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
+}
+
+.verdict-contradicted {
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+}
+
+/* Sin contraste: discreto, no es una alerta sino ausencia de información. */
+.verdict-not-assessed {
+    background: transparent;
+    color: var(--color-text-muted);
+    font-weight: 400;
+    border: 1px dashed var(--color-border);
+}

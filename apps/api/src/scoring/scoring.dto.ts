@@ -1,6 +1,11 @@
 import { Criterion, CRITERIA, EvidenceItem } from "../ai/schemas/common";
+import {
+    CRITERION_VERDICTS,
+    CriterionVerdict,
+} from "../ai/schemas/score-candidate";
 import { AppError } from "../shared/errors";
 import { CandidateScoreRow } from "./score.repository";
+import { computeOverallScore } from "./weights";
 
 /**
  * DTOs y validación de entrada del dominio Scoring.
@@ -15,6 +20,8 @@ export interface SuggestedCriterionScoreDTO {
     score: number;
     rationale: string;
     evidence: EvidenceItem[];
+    /** Resultado del contraste con la entrevista (§13). */
+    verdict: CriterionVerdict;
 }
 
 /** Respuesta de POST /candidates/:id/analyze (contrato del plan). */
@@ -22,8 +29,16 @@ export interface AnalyzeResponseDTO {
     candidateId: string;
     analysisStatus: "analyzed";
     suggestedScores: Record<Criterion, SuggestedCriterionScoreDTO>;
-    /** Calculado SIEMPRE por el backend con scoring/weights.ts. */
+    /** Score de la RÚBRICA (§06): calculado SIEMPRE por scoring/weights.ts. */
+    cvScore: number;
+    /** @deprecated Alias histórico de `cvScore`; mismo valor. */
     finalScore: number;
+    /** Nota global de entrevista del candidato (1-10) o null. */
+    interviewScore: number | null;
+    /** Score final combinado 30% CV / 70% entrevista (§06). */
+    overallScore: number;
+    /** true si `overallScore` es solo el score de CV (sin entrevista). */
+    provisional: boolean;
     confidence: number;
     doubts: string[];
     risks: string[];
@@ -35,10 +50,28 @@ export interface AnalyzeResponseDTO {
 export interface CandidateScoreDTO {
     candidateId: string;
     scores: Record<Criterion, number | null>;
+    /** Score de la rúbrica §06 (el persistido); null si falta algún criterio. */
+    cvScore: number | null;
+    /** @deprecated Alias histórico de `cvScore`; mismo valor. */
     finalScore: number | null;
+    /** Nota global de entrevista (1-10) o null si no hay respuestas puntuadas. */
+    interviewScore: number | null;
+    /** Score final combinado 30/70 (§06); null si no hay score de CV. */
+    overallScore: number | null;
+    /**
+     * true mientras el combinado sea solo el score de CV: sin entrevista
+     * puntuada, o sin score de CV con el que combinar.
+     */
+    provisional: boolean;
     confidence: number | null;
     /** {criteria, doubts, risks} del último análisis, parseado (o null). */
     evidenceSummary: unknown;
+    /**
+     * Veredicto del contraste CV/entrevista por criterio (§13), extraído de
+     * `evidenceSummary.criteria[*].verdict`. null en los análisis antiguos,
+     * anteriores al contraste, que no lo guardaron.
+     */
+    verdicts: Record<Criterion, CriterionVerdict | null>;
     manualNotes: string | null;
     updatedAt: string;
 }
@@ -185,7 +218,48 @@ export function parseJsonColumn(value: string | null): unknown {
     }
 }
 
-export function toCandidateScoreDTO(row: CandidateScoreRow): CandidateScoreDTO {
+/**
+ * Veredictos persistidos en `evidence_summary.criteria[*].verdict`. Tolera
+ * análisis antiguos (sin el campo) y valores desconocidos: en ambos casos
+ * devuelve null para ese criterio.
+ */
+export function verdictsOf(
+    evidenceSummary: unknown,
+): Record<Criterion, CriterionVerdict | null> {
+    const criteria =
+        typeof evidenceSummary === "object" && evidenceSummary !== null
+            ? ((evidenceSummary as { criteria?: unknown }).criteria ?? {})
+            : {};
+    const byCriterion = (
+        typeof criteria === "object" && criteria !== null ? criteria : {}
+    ) as Record<string, { verdict?: unknown } | undefined>;
+
+    return Object.fromEntries(
+        CRITERIA.map((criterion) => {
+            const verdict = byCriterion[criterion]?.verdict;
+            const isKnown =
+                typeof verdict === "string" &&
+                (CRITERION_VERDICTS as readonly string[]).includes(verdict);
+            return [criterion, isKnown ? (verdict as CriterionVerdict) : null];
+        }),
+    ) as Record<Criterion, CriterionVerdict | null>;
+}
+
+/**
+ * Proyecta la fila de score al DTO. `interviewScore` (nota global 1-10 del
+ * candidato, o null) lo aporta el caso de uso porque vive en las preguntas,
+ * no en esta tabla: sin él no se puede derivar el combinado de §06.
+ */
+export function toCandidateScoreDTO(
+    row: CandidateScoreRow,
+    interviewScore: number | null,
+): CandidateScoreDTO {
+    const evidenceSummary = parseJsonColumn(row.evidence_summary);
+    const combined =
+        row.final_score === null
+            ? null
+            : computeOverallScore(row.final_score, interviewScore);
+
     return {
         candidateId: row.candidate_id,
         scores: {
@@ -195,9 +269,14 @@ export function toCandidateScoreDTO(row: CandidateScoreRow): CandidateScoreDTO {
             production: row.production,
             stack: row.stack,
         },
+        cvScore: row.final_score,
         finalScore: row.final_score,
+        interviewScore,
+        overallScore: combined?.overall ?? null,
+        provisional: combined?.provisional ?? true,
         confidence: row.confidence,
-        evidenceSummary: parseJsonColumn(row.evidence_summary),
+        evidenceSummary,
+        verdicts: verdictsOf(evidenceSummary),
         manualNotes: row.manual_notes,
         updatedAt: row.updated_at,
     };

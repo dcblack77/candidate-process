@@ -7,14 +7,16 @@ import {
     CRITERION_LABELS,
     RankingEntryDTO,
     RankingResponseDTO,
+    ScoreWeightsDTO,
     TieBreakLevel,
 } from "../api/types";
 import { ErrorAlert, Spinner, StatusBadge } from "../components/ui";
 
 /**
- * Etiqueta en español del nivel de desempate aplicado (§15). El orden real
- * lo fija el backend en scoring/weights.ts: adaptabilidad → fundamentos →
- * producción → profundidad → stack → entrevista → confianza.
+ * Etiqueta en español del nivel de desempate aplicado cuando dos candidatos
+ * empatan en el score final combinado (§15). El orden real lo fija el backend
+ * en scoring/weights.ts: adaptabilidad → fundamentos → producción →
+ * profundidad → stack → entrevista → confianza.
  */
 const TIE_BREAK_LABELS: Record<TieBreakLevel, string> = {
     adaptability: "Desempate: adaptabilidad",
@@ -27,13 +29,34 @@ const TIE_BREAK_LABELS: Record<TieBreakLevel, string> = {
 };
 
 /** Número de columnas de la tabla: usado por el colSpan de la fila expandible. */
-// #, candidato, score final, los criterios, entrevista y confianza.
-const RANKING_COLUMN_COUNT = 5 + CRITERIA.length;
+// #, candidato, CV, entrevista, score final, los criterios y confianza.
+const RANKING_COLUMN_COUNT = 6 + CRITERIA.length;
 
 /**
- * Pantalla Comparativa (§21/§15): tabla por criterios con pesos visibles,
- * badges de desempate y revisión manual, dudas y preguntas clave
- * expandibles, y candidatos sin puntuar aparte.
+ * Porcentaje entero de un peso (0-1) tal y como lo envía el backend. Devuelve
+ * "—" si el peso no llega: preferimos no enseñar nada a inventar un número
+ * que contradiga a `scoring/weights.ts`.
+ */
+function percent(weight: number | undefined): string {
+    return typeof weight === "number" ? `${Math.round(weight * 100)}%` : "—";
+}
+
+/**
+ * Fórmula del score final, construida SIEMPRE con los pesos que llegan del
+ * backend (§06): si allí cambian, este texto cambia solo.
+ */
+function scoreFormula(scoreWeights: ScoreWeightsDTO | undefined): string {
+    return (
+        `Score final = CV×${percent(scoreWeights?.cv)} + ` +
+        `Entrevista×${percent(scoreWeights?.interview)}`
+    );
+}
+
+/**
+ * Pantalla Comparativa (§21/§15/§06): tabla con los DOS niveles de score
+ * —CV (lo que promete) y score final combinado (lo que demostró)—, pesos
+ * visibles, badges de provisional/desempate/revisión manual, dudas y
+ * preguntas clave expandibles, y candidatos sin puntuar aparte.
  */
 export function RankingPage() {
     const [ranking, setRanking] = useState<RankingResponseDTO | null>(null);
@@ -64,9 +87,21 @@ export function RankingPage() {
         );
     }
 
+    const hasProvisional = ranking.entries.some((entry) => entry.provisional);
+
     return (
         <>
             <h1 className="page-title">Comparativa</h1>
+            <p className="score-formula">
+                <strong>{scoreFormula(ranking.scoreWeights)}</strong>{" "}
+                <span className="muted small">
+                    — el <strong>CV</strong> (1-5) es lo que el candidato
+                    promete; la <strong>entrevista</strong> (1-10, llevada a la
+                    escala 1-5) es lo que demostró. El ranking se ordena por el
+                    score final, así que un CV brillante sin entrevista sólida
+                    puede quedar por debajo.
+                </span>
+            </p>
             {ranking.entries.length === 0 ? (
                 <p className="muted">
                     Aún no hay candidatos con puntuación completa.
@@ -78,26 +113,39 @@ export function RankingPage() {
                             <tr>
                                 <th>#</th>
                                 <th>Candidato</th>
-                                <th>Score final</th>
+                                <th>
+                                    CV{" "}
+                                    <span className="muted">
+                                        (rúbrica 1-5,{" "}
+                                        {percent(ranking.scoreWeights?.cv)} del
+                                        final)
+                                    </span>
+                                </th>
+                                <th>
+                                    Entrevista{" "}
+                                    <span className="muted">
+                                        (escala 1-10,{" "}
+                                        {percent(
+                                            ranking.scoreWeights?.interview,
+                                        )}{" "}
+                                        del final)
+                                    </span>
+                                </th>
+                                <th className="overall-header">
+                                    Score final{" "}
+                                    <span className="muted">
+                                        (ordena el ranking)
+                                    </span>
+                                </th>
                                 {CRITERIA.map((criterion) => (
                                     <th key={criterion}>
                                         {CRITERION_LABELS[criterion]}{" "}
                                         <span className="muted">
-                                            (
-                                            {Math.round(
-                                                ranking.weights[criterion] *
-                                                    100,
-                                            )}
-                                            %)
+                                            ({percent(ranking.weights[criterion])}{" "}
+                                            del CV)
                                         </span>
                                     </th>
                                 ))}
-                                <th>
-                                    Entrevista{" "}
-                                    <span className="muted">
-                                        (escala 1-10, fuera del score final)
-                                    </span>
-                                </th>
                                 <th>Confianza</th>
                             </tr>
                         </thead>
@@ -111,6 +159,14 @@ export function RankingPage() {
                         </tbody>
                     </table>
                 </div>
+            )}
+            {hasProvisional && (
+                <p className="muted small">
+                    * Score <strong>provisional</strong>: ese candidato aún no
+                    tiene respuestas de entrevista puntuadas, así que su score
+                    final es todavía solo el del CV y no es comparable con el de
+                    los ya entrevistados.
+                </p>
             )}
 
             <section className="card">
@@ -168,19 +224,29 @@ function RankingRow({ entry }: { entry: RankingEntryDTO }) {
                         <span className="badge badge-warning">
                             Revisión manual
                         </span>
+                    )}{" "}
+                    {entry.provisional && (
+                        <span className="badge badge-provisional">
+                            Provisional · pendiente de entrevista
+                        </span>
                     )}
                 </td>
-                <td>
-                    <strong>{entry.finalScore.toFixed(2)}</strong>
-                </td>
-                {CRITERIA.map((criterion) => (
-                    <td key={criterion}>{entry.scores[criterion]}</td>
-                ))}
+                <td className="cv-cell">{entry.cvScore.toFixed(2)}</td>
                 <td className="interview-cell">
                     {entry.interviewScore == null
                         ? "—"
                         : `${entry.interviewScore.toFixed(1)}/10`}
                 </td>
+                {/* El score que ordena: destacado y con * si es provisional. */}
+                <td className="overall-cell">
+                    <strong className="overall-score">
+                        {entry.overallScore.toFixed(2)}
+                        {entry.provisional && "*"}
+                    </strong>
+                </td>
+                {CRITERIA.map((criterion) => (
+                    <td key={criterion}>{entry.scores[criterion]}</td>
+                ))}
                 <td>
                     {entry.confidence == null
                         ? "—"

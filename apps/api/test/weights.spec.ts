@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
     compareCandidates,
     computeFinalScore,
+    computeOverallScore,
     CriterionScores,
+    CV_WEIGHT,
+    INTERVIEW_WEIGHT,
     RankableEntry,
     rankEntries,
     TIE_BREAK_ORDER,
@@ -11,9 +14,9 @@ import {
 
 /**
  * Unit exhaustivo de scoring/weights.ts (BLUEPRINT §06 y §15): fórmula
- * exacta calculada a mano, redondeo, cada nivel de desempate por separado
- * (incluida la nota de entrevista), empate total → needsManualReview y
- * orden estable.
+ * exacta de la rúbrica calculada a mano, score final combinado 30/70,
+ * redondeo, cada nivel de desempate por separado (incluida la nota de
+ * entrevista), empate total → needsManualReview y orden estable.
  */
 
 function scores(
@@ -32,7 +35,7 @@ function entry(
     interviewScore: number | null = null,
 ): RankableEntry {
     return {
-        finalScore: computeFinalScore(s),
+        cvScore: computeFinalScore(s),
         scores: s,
         interviewScore,
         confidence,
@@ -91,6 +94,87 @@ describe("computeFinalScore (fórmula §06)", () => {
     });
 });
 
+describe("computeOverallScore (score final combinado §06)", () => {
+    it("pesos exactos del combinado: 30% CV, 70% entrevista", () => {
+        expect(CV_WEIGHT).toBe(0.3);
+        expect(INTERVIEW_WEIGHT).toBe(0.7);
+        expect(CV_WEIGHT + INTERVIEW_WEIGHT).toBe(1);
+    });
+
+    it.each([
+        // cv*0.30 + (entrevista/2)*0.70, calculado a mano.
+        [5, 10, 5], // 1.50 + 3.50
+        [1, 2, 1], // 0.30 + 0.70
+        [4, 6, 3.3], // 1.20 + 2.10
+        [3, 8, 3.7], // 0.90 + 2.80
+        [2, 10, 4.1], // 0.60 + 3.50
+        [5, 1, 1.85], // 1.50 + 0.35
+    ])(
+        "cv %s y entrevista %s ⇒ combinado %s",
+        (cvScore, interviewScore, expected) => {
+            expect(computeOverallScore(cvScore, interviewScore)).toEqual({
+                overall: expected,
+                provisional: false,
+            });
+        },
+    );
+
+    it("sin entrevista puntuada: combinado = score de CV y provisional=true", () => {
+        expect(computeOverallScore(4.55, null)).toEqual({
+            overall: 4.55,
+            provisional: true,
+        });
+        expect(computeOverallScore(1, null)).toEqual({
+            overall: 1,
+            provisional: true,
+        });
+    });
+
+    it("redondea a 2 decimales sin residuos de coma flotante", () => {
+        // 4.35*0.30 + 2.5*0.70 = 3.055 → 3.06 (y no 3.0549999…).
+        expect(computeOverallScore(4.35, 5).overall).toBe(3.06);
+        expect(computeOverallScore(3.33, 7.7).overall).toBe(3.69); // 0.999+2.695
+    });
+
+    it("caso real del usuario (2026-07-29): cuatro candidatos con entrevista", () => {
+        // Números exactos verificados con los datos reales del proceso.
+        const candidates = [
+            { name: "Walter", cv: 4.55, interview: 7.7, overall: 4.06 },
+            { name: "Hugo", cv: 4.35, interview: 5, overall: 3.06 },
+            { name: "Stuart", cv: 4.3, interview: 5, overall: 3.04 },
+            { name: "Alfonso", cv: 4.6, interview: 4.6, overall: 2.99 },
+        ];
+
+        for (const candidate of candidates) {
+            expect(
+                computeOverallScore(candidate.cv, candidate.interview).overall,
+            ).toBe(candidate.overall);
+        }
+
+        // Y el orden resultante NO es el del CV (Alfonso tenía el mejor CV).
+        const ranked = rankEntries(
+            candidates.map((candidate) => ({
+                name: candidate.name,
+                cvScore: candidate.cv,
+                scores: scores(3, 3, 3, 3, 3),
+                interviewScore: candidate.interview,
+                confidence: 0.5,
+            })),
+        );
+        expect(ranked.map((r) => r.name)).toEqual([
+            "Walter",
+            "Hugo",
+            "Stuart",
+            "Alfonso",
+        ]);
+        expect(ranked.map((r) => r.overallScore)).toEqual([
+            4.06, 3.06, 3.04, 2.99,
+        ]);
+        expect(ranked.map((r) => r.position)).toEqual([1, 2, 3, 4]);
+        expect(ranked.every((r) => !r.provisional)).toBe(true);
+    });
+});
+
 describe("compareCandidates y rankEntries: desempates de §15", () => {
     it("sin empate: ordena por score final descendente", () => {
         const low = entry(scores(2, 2, 2, 2, 2)); // 2.0
@@ -98,7 +182,9 @@ describe("compareCandidates y rankEntries: desempates de §15", () => {
         const mid = entry(scores(3, 3, 3, 3, 3)); // 3.0
 
         const ranked = rankEntries([low, high, mid]);
-        expect(ranked.map((r) => r.finalScore)).toEqual([5, 3, 2]);
+        expect(ranked.map((r) => r.cvScore)).toEqual([5, 3, 2]);
+        expect(ranked.map((r) => r.overallScore)).toEqual([5, 3, 2]);
+        expect(ranked.every((r) => r.provisional)).toBe(true);
         expect(ranked.map((r) => r.position)).toEqual([1, 2, 3]);
         expect(ranked.every((r) => r.tieBreakApplied === null)).toBe(true);
         expect(ranked.every((r) => !r.needsManualReview)).toBe(true);
@@ -107,7 +193,7 @@ describe("compareCandidates y rankEntries: desempates de §15", () => {
     it("nivel 1 — adaptabilidad: empate a 3.0 lo gana la mayor adaptabilidad", () => {
         const a = entry(scores(4, 3, 3, 1, 3)); // 1.2+0.75+0.6+0.15+0.3 = 3.0
         const b = entry(scores(3, 3, 3, 3, 3)); // 3.0
-        expect(a.finalScore).toBe(b.finalScore);
+        expect(a.cvScore).toBe(b.cvScore);
 
         expect(compareCandidates(a, b)).toBeLessThan(0);
         const ranked = rankEntries([b, a]);
@@ -120,7 +206,7 @@ describe("compareCandidates y rankEntries: desempates de §15", () => {
     it("nivel 2 — fundamentos: con adaptabilidad igual decide fundamentos", () => {
         const a = entry(scores(3, 5, 3, 1, 1)); // 0.9+1.25+0.6+0.15+0.1 = 3.0
         const b = entry(scores(3, 3, 3, 3, 3)); // 3.0
-        expect(a.finalScore).toBe(b.finalScore);
+        expect(a.cvScore).toBe(b.cvScore);
 
         expect(compareCandidates(a, b)).toBeLessThan(0);
         const ranked = rankEntries([b, a]);
@@ -131,7 +217,7 @@ describe("compareCandidates y rankEntries: desempates de §15", () => {
     it("nivel 3 — producción: va ANTES que profundidad (§15)", () => {
         const a = entry(scores(3, 3, 3, 5, 1)); // 0.9+0.75+0.6+0.75+0.1 = 3.1
         const b = entry(scores(3, 3, 3, 3, 4)); // 0.9+0.75+0.6+0.45+0.4 = 3.1
-        expect(a.finalScore).toBe(b.finalScore);
+        expect(a.cvScore).toBe(b.cvScore);
 
         expect(compareCandidates(a, b)).toBeLessThan(0);
         const ranked = rankEntries([b, a]);
@@ -142,7 +228,7 @@ describe("compareCandidates y rankEntries: desempates de §15", () => {
     it("nivel 4 — profundidad: con adaptabilidad, fundamentos y producción iguales", () => {
         const a = entry(scores(3, 3, 4, 3, 1)); // 0.9+0.75+0.8+0.45+0.1 = 3.0
         const b = entry(scores(3, 3, 3, 3, 3)); // 3.0
-        expect(a.finalScore).toBe(b.finalScore);
+        expect(a.cvScore).toBe(b.cvScore);
 
         expect(compareCandidates(a, b)).toBeLessThan(0);
         const ranked = rankEntries([b, a]);
@@ -152,16 +238,16 @@ describe("compareCandidates y rankEntries: desempates de §15", () => {
 
     it("nivel 5 — stack: decide cuando todo lo anterior está igualado", () => {
         // Con los 4 primeros criterios iguales, la suma ponderada solo puede
-        // empatar si stack también empata; el nivel se cubre con finalScore
+        // empatar si stack también empata; el nivel se cubre con cvScore
         // igualado explícitamente (compareCandidates opera sobre el campo).
         const a: RankableEntry = {
-            finalScore: 3,
+            cvScore: 3,
             scores: scores(3, 3, 3, 3, 4),
             interviewScore: null,
             confidence: 0.5,
         };
         const b: RankableEntry = {
-            finalScore: 3,
+            cvScore: 3,
             scores: scores(3, 3, 3, 3, 2),
             interviewScore: null,
             confidence: 0.5,
@@ -175,36 +261,65 @@ describe("compareCandidates y rankEntries: desempates de §15", () => {
         expect(ranked[1].tieBreakApplied).toBe("stack");
     });
 
-    it("nivel 6 — entrevista: con los cinco criterios iguales decide la nota de entrevista", () => {
-        const a = entry(scores(3, 3, 3, 3, 3), 0.5, 8.4);
-        const b = entry(scores(3, 3, 3, 3, 3), 0.5, 6.1);
+    it("nivel 6 — entrevista: con el combinado empatado decide la nota de entrevista", () => {
+        // Desde el combinado (0.30·cv + 0.35·nota) la entrevista ya ordena;
+        // este nivel solo actúa cuando el combinado EMPATA con notas de
+        // entrevista distintas: 0.30·3.3 + 0.35·6.6 = 0.30·4.0 + 0.35·6.0.
+        const a: RankableEntry = {
+            cvScore: 3.3,
+            scores: scores(3, 3, 3, 3, 3),
+            interviewScore: 6.6,
+            confidence: 0.5,
+        };
+        const b: RankableEntry = {
+            cvScore: 4,
+            scores: scores(3, 3, 3, 3, 3),
+            interviewScore: 6,
+            confidence: 0.5,
+        };
 
         expect(compareCandidates(a, b)).toBeLessThan(0);
         const ranked = rankEntries([b, a]);
-        expect(ranked[0].interviewScore).toBe(8.4);
+        expect(ranked.map((r) => r.overallScore)).toEqual([3.3, 3.3]);
+        expect(ranked[0].interviewScore).toBe(6.6);
         expect(ranked[0].tieBreakApplied).toBe("interview");
         expect(ranked[1].tieBreakApplied).toBe("interview");
         expect(ranked.every((r) => !r.needsManualReview)).toBe(true);
     });
 
     it("la entrevista se aplica ANTES que la confianza", () => {
-        // Menor confianza pero con entrevista puntuada: gana igualmente.
-        const interviewed = entry(scores(3, 3, 3, 3, 3), 0.1, 5);
-        const onlyConfidence = entry(scores(3, 3, 3, 3, 3), 0.9, 4.9);
+        // Mismo combinado (3.3), menor confianza pero mejor entrevista: gana.
+        const interviewed: RankableEntry = {
+            cvScore: 3.3,
+            scores: scores(3, 3, 3, 3, 3),
+            interviewScore: 6.6,
+            confidence: 0.1,
+        };
+        const onlyConfidence: RankableEntry = {
+            cvScore: 4,
+            scores: scores(3, 3, 3, 3, 3),
+            interviewScore: 6,
+            confidence: 0.9,
+        };
 
         const ranked = rankEntries([onlyConfidence, interviewed]);
-        expect(ranked[0].interviewScore).toBe(5);
+        expect(ranked[0].interviewScore).toBe(6.6);
         expect(ranked[0].confidence).toBe(0.1);
         expect(ranked[0].tieBreakApplied).toBe("interview");
     });
 
-    it("entrevista null cuenta como 0: sin entrevista se queda detrás", () => {
-        const withInterview = entry(scores(3, 3, 3, 3, 3), 0.5, 1);
-        const withoutInterview = entry(scores(3, 3, 3, 3, 3), 0.9, null);
+    it("entrevista null cuenta como 0 en el desempate: sin entrevista se queda detrás", () => {
+        // CV perfecto y entrevista perfecta ⇒ combinado 5.0, igual que un CV
+        // perfecto SIN entrevista (que no se penaliza, solo es provisional).
+        const withInterview = entry(scores(5, 5, 5, 5, 5), 0.5, 10);
+        const withoutInterview = entry(scores(5, 5, 5, 5, 5), 0.9, null);
 
         const ranked = rankEntries([withoutInterview, withInterview]);
-        expect(ranked[0].interviewScore).toBe(1);
+        expect(ranked.map((r) => r.overallScore)).toEqual([5, 5]);
+        expect(ranked[0].interviewScore).toBe(10);
+        expect(ranked[0].provisional).toBe(false);
         expect(ranked[1].interviewScore).toBeNull();
+        expect(ranked[1].provisional).toBe(true);
         expect(ranked[0].tieBreakApplied).toBe("interview");
     });
 

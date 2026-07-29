@@ -95,16 +95,45 @@ Los criterios que pesan en el ranking son:
 
 Cada criterio se puntúa de 1 a 5.
 
-Fórmula:
+La puntuación tiene **dos niveles**: la rúbrica produce el *score de CV* y
+encima se calcula el *score final combinado* con la entrevista.
+
+### Nivel 1: score de CV (rúbrica)
 
 ```text
-score_final =
+score_cv =
   adaptabilidad * 0.30 +
   fundamentos * 0.25 +
   profundidad * 0.20 +
   produccion * 0.15 +
   stack * 0.10
 ```
+
+Es lo que **promete** el CV. Es el valor que se persiste en
+`candidate_score.final_score` y el que edita manualmente el evaluador.
+
+### Nivel 2: score final combinado (CV + entrevista)
+
+```text
+score_final = score_cv * 0.30 + (nota_entrevista / 2) * 0.70
+```
+
+Es lo que el candidato ha **demostrado**. `nota_entrevista` es la nota global
+de entrevista (1-10, §15) y se divide por 2 para llevarla a la escala 1-5 de
+la rúbrica, de modo que ambos sumandos son comparables. El resultado se
+redondea a 2 decimales y **no se persiste**: es derivado, se recalcula en
+cada lectura.
+
+La entrevista pesa más que el CV a propósito: el CV es una promesa
+autoinformada; la entrevista es evidencia observada por el evaluador.
+
+Un candidato **sin ninguna respuesta de entrevista puntuada** no se penaliza:
+su score final es su score de CV, pero se marca como **provisional** para que
+quede claro que aún no está contrastado.
+
+Los pesos (`0.30` / `0.70`), el divisor de escala y la fórmula viven en un
+único sitio del código (`scoring/weights.ts`) y se exponen en `GET /ranking`
+como `scoreWeights`.
 
 ## 07. Lo Que Se Valida En Entrevista
 
@@ -309,6 +338,12 @@ created_at
 updated_at
 ```
 
+`final_score` es el **score de CV** de la rúbrica (§06, nivel 1). El score
+final combinado con la entrevista es derivado y NO se persiste. En
+`evidence_summary` se guarda, por criterio, `{rationale, evidence, verdict}`
+(el `verdict` es el contraste con la entrevista, §13; los análisis anteriores
+a esa versión no lo tienen y el código lo trata como ausente).
+
 ### InterviewQuestion
 
 ```text
@@ -368,6 +403,39 @@ Reglas:
 - Señalar qué debe validarse en entrevista.
 - Ignorar datos personales irrelevantes.
 
+### Contraste con la entrevista
+
+Si el candidato ya tiene respuestas de entrevista puntuadas, el análisis
+**no puede volver a mirar solo el CV**: recibe también esa evidencia (por
+pregunta respondida: criterio, enunciado, respuesta ideal, nota 1-10 y notas
+del evaluador) y debe **contrastar** lo que el CV promete con lo que se
+demostró.
+
+- Nota media del criterio ≥ 8 ⇒ confirma: mantener o subir.
+- Nota media entre 5 y 7 ⇒ demostración parcial: bajar si el CV prometía 4-5.
+- Nota media ≤ 4 ⇒ **bajar** el criterio: lo que el CV prometía no se
+  demostró.
+- Notas que contradicen directamente el CV ⇒ bajar a 1 o 2.
+- Criterio sin respuestas puntuadas ⇒ se puntúa solo con el CV.
+
+Cada criterio del análisis reporta un **veredicto** del contraste:
+
+| Veredicto | Significado |
+|---|---|
+| `confirmed` | La entrevista confirma lo que prometía el CV. |
+| `not_demonstrated` | El CV lo prometía y la entrevista no lo demostró. |
+| `contradicted` | La entrevista contradice lo que el CV afirmaba. |
+| `not_assessed` | No hubo respuestas puntuadas de ese criterio. |
+
+El veredicto se persiste junto al `rationale` y las evidencias, y sale en el
+detalle del candidato y en la exportación. Sin respuestas puntuadas el
+análisis se comporta exactamente igual que antes del contraste y todos los
+veredictos son `not_assessed`.
+
+El contexto de entrevista se trunca para no romper el presupuesto de tokens
+(§18): notas del evaluador a 400 caracteres por pregunta, respuesta ideal y
+enunciado a 300.
+
 ## 14. Generación De Preguntas
 
 Cada candidato debe recibir preguntas personalizadas según:
@@ -421,19 +489,25 @@ Cómo puntuar:
 
 ## 15. Ranking
 
-El ranking debe mostrar:
+El ranking se ordena por el **score final combinado** (§06) y debe mostrar:
 
 - Posición.
 - Nombre del candidato.
-- Score final.
+- Score de CV (rúbrica).
+- Nota de entrevista (global y por criterio).
+- Score final combinado, y si es **provisional**.
 - Score por criterio.
 - Evidencia resumida.
 - Confianza del análisis.
-- Nota de entrevista (global y por criterio).
 - Dudas pendientes.
 - Preguntas clave.
 
-Reglas de desempate:
+Un score final es **provisional** cuando el candidato todavía no tiene
+ninguna respuesta de entrevista puntuada: vale su score de CV (no se le
+penaliza) pero no está contrastado y se mueve en cuanto se le puntúe la
+entrevista.
+
+Reglas de desempate (sobre el score final combinado):
 
 1. Mayor adaptabilidad.
 2. Mayor fundamentos.
@@ -446,10 +520,13 @@ Reglas de desempate:
 
 Nota de entrevista: media de las notas (1-10) de las respuestas de cada
 criterio, agregadas con los pesos de §06 renormalizados sobre los criterios
-que tengan al menos una respuesta puntuada. Un candidato sin ninguna
-respuesta puntuada cuenta como 0 en ese nivel (hay evidencia observada a
-favor de quien sí fue entrevistado). La entrevista NO altera la fórmula del
-score final de §06: solo desempata.
+que tengan al menos una respuesta puntuada.
+
+Esa nota entra en el score final combinado con peso 70% (§06) y, además,
+sigue siendo un nivel de desempate: ahí un candidato sin ninguna respuesta
+puntuada cuenta como 0 (ante dos scores combinados iguales gana quien tiene
+evidencia observada). La nota de entrevista **no** altera el score de CV: la
+rúbrica de §06 se calcula solo con los cinco criterios.
 
 ## 16. Restricciones, Reglas Y Límites De Uso
 
@@ -570,10 +647,11 @@ La exportación debe ser limpia y limitada.
 
 Incluye:
 
-- Ranking.
+- Ranking, con columnas **CV**, **Entrevista** y **Score final** (combinado),
+  la nota de los pesos 30/70 y una marca `*` en los scores provisionales.
 - Nombre del candidato.
-- Score final.
-- Score por criterio.
+- Score por criterio, con el **veredicto** del contraste con la entrevista
+  (✓ confirmado / ⚠ no demostrado / ⚠ contradicho / — sin evaluar).
 - Resumen breve.
 - Fortalezas.
 - Riesgos.
@@ -702,3 +780,7 @@ La primera versión está lista cuando:
 - Rol: único rol técnico.
 - Visibilidad: notas y puntuaciones privadas para mí.
 - Exportación: versión limitada para mostrar al líder.
+- Score final: combinado 30% CV / 70% entrevista (§06). Sin entrevista
+  puntuada el score es el del CV y se marca como provisional.
+- Análisis: contrasta el CV con la entrevista y baja los criterios que no se
+  demostraron (§13).

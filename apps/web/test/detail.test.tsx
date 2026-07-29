@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     CandidateDetailDTO,
+    CandidateScoreDTO,
     InterviewQuestionDTO,
     InterviewSummaryDTO,
 } from "../src/api/types";
@@ -63,6 +64,68 @@ const CANDIDATE: CandidateDetailDTO = {
     score: null,
     questions: [],
     interview: EMPTY_INTERVIEW,
+};
+
+/** Análisis antiguo, anterior al contraste CV/entrevista: sin veredictos. */
+const EMPTY_VERDICTS: CandidateScoreDTO["verdicts"] = {
+    adaptability: null,
+    fundamentals: null,
+    depth: null,
+    production: null,
+    stack: null,
+};
+
+/** Score con la rúbrica completa y sin entrevista puntuada (provisional). */
+const SCORE: CandidateScoreDTO = {
+    candidateId: "c1",
+    scores: {
+        adaptability: 5,
+        fundamentals: 4,
+        depth: 4,
+        production: 4,
+        stack: 3,
+    },
+    cvScore: 4.2,
+    finalScore: 4.2,
+    interviewScore: null,
+    overallScore: 4.2,
+    provisional: true,
+    confidence: 0.8,
+    evidenceSummary: null,
+    verdicts: EMPTY_VERDICTS,
+    manualNotes: null,
+    updatedAt: "2026-07-29T10:00:00.000Z",
+};
+
+/** Candidato ya entrevistado y re-analizado: un veredicto de cada tipo. */
+const CANDIDATE_ASSESSED: CandidateDetailDTO = {
+    ...CANDIDATE,
+    score: {
+        ...SCORE,
+        interviewScore: 7.4,
+        overallScore: 3.85,
+        provisional: false,
+        verdicts: {
+            adaptability: "confirmed",
+            fundamentals: "not_demonstrated",
+            depth: "contradicted",
+            production: "not_assessed",
+            // null: criterio que el análisis no llegó a marcar.
+            stack: null,
+        },
+    },
+    interview: {
+        byCriterion: {
+            adaptability: { average: 8, answered: 2 },
+            fundamentals: { average: 6, answered: 1 },
+            depth: { average: 4, answered: 1 },
+            production: null,
+            stack: null,
+        },
+        overall: 7.4,
+        answeredCount: 4,
+        totalCount: 6,
+    },
 };
 
 const QUESTION: InterviewQuestionDTO = {
@@ -167,7 +230,9 @@ describe("CandidateDetailPage", () => {
         ).toHaveLength(0);
     });
 
-    it("envía el PATCH y muestra el finalScore recalculado por el backend", async () => {
+    // El PATCH devuelve los TRES scores ya calculados por el backend: la UI
+    // solo los pinta (nunca recalcula el combinado 30/70).
+    it("envía el PATCH y muestra los tres scores recalculados por el backend", async () => {
         const { calls } = installFetchMock({
             "GET /api/candidates/c1": () => jsonResponse(CANDIDATE),
             "PATCH /api/candidates/c1/score": () =>
@@ -180,9 +245,15 @@ describe("CandidateDetailPage", () => {
                         production: null,
                         stack: null,
                     },
+                    // CV 3.85 + entrevista 8.0 → 3.85*0.3 + 4.0*0.7 = 3.96.
+                    cvScore: 3.85,
                     finalScore: 3.85,
+                    interviewScore: 8,
+                    overallScore: 3.96,
+                    provisional: false,
                     confidence: null,
                     evidenceSummary: null,
+                    verdicts: EMPTY_VERDICTS,
                     manualNotes: null,
                     updatedAt: "2026-07-29T10:00:00.000Z",
                 }),
@@ -196,7 +267,14 @@ describe("CandidateDetailPage", () => {
             screen.getByRole("button", { name: "Guardar puntuaciones" }),
         );
 
-        expect(await screen.findByText("3.85")).toBeInTheDocument();
+        const overview = within(
+            await screen.findByLabelText("Resumen de puntuaciones"),
+        );
+        expect(overview.getByText("3.85")).toBeInTheDocument(); // CV
+        expect(overview.getByText("8.0")).toBeInTheDocument(); // entrevista
+        expect(overview.getByText("3.96")).toBeInTheDocument(); // combinado
+        expect(overview.queryByText(/Provisional/)).not.toBeInTheDocument();
+
         await waitFor(() => {
             const patch = calls.find((call) => call.init.method === "PATCH");
             expect(patch).toBeDefined();
@@ -204,6 +282,97 @@ describe("CandidateDetailPage", () => {
                 adaptability: 4,
             });
         });
+    });
+});
+
+// ── Los dos niveles de score y el contraste CV/entrevista (§06/§13) ────────
+
+describe("CandidateDetailPage · score combinado y veredictos", () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it("muestra CV, entrevista y score final, con el badge de provisional", async () => {
+        installFetchMock({
+            "GET /api/candidates/c1": () =>
+                jsonResponse({
+                    ...CANDIDATE,
+                    score: {
+                        ...SCORE,
+                        interviewScore: null,
+                        overallScore: 4.2,
+                        provisional: true,
+                    },
+                }),
+        });
+        renderPage();
+
+        const overview = within(
+            await screen.findByLabelText("Resumen de puntuaciones"),
+        );
+        expect(overview.getByText("CV · lo que promete")).toBeInTheDocument();
+        expect(
+            overview.getByText("Entrevista · lo que demostró"),
+        ).toBeInTheDocument();
+        expect(
+            overview.getByText("Score final · ordena la comparativa"),
+        ).toBeInTheDocument();
+        // Sin entrevista el combinado es todavía el score de CV: mismo número.
+        expect(overview.getAllByText("4.20")).toHaveLength(2);
+        expect(overview.getByText("—")).toBeInTheDocument(); // sin entrevista
+        expect(
+            overview.getByText(/Provisional · pendiente de entrevista/),
+        ).toHaveClass("badge-provisional");
+    });
+
+    it("renderiza cada veredicto con su etiqueta y su estilo", async () => {
+        installFetchMock({
+            "GET /api/candidates/c1": () => jsonResponse(CANDIDATE_ASSESSED),
+        });
+        renderPage();
+
+        expect(
+            await screen.findByText("✓ Confirmado en entrevista"),
+        ).toHaveClass("verdict-confirmed");
+        expect(screen.getByText("⚠ No demostrado")).toHaveClass(
+            "verdict-not-demonstrated",
+        );
+        expect(screen.getByText("✗ Contradicho")).toHaveClass(
+            "verdict-contradicted",
+        );
+        // not_assessed y null se muestran igual de discretos.
+        const notAssessed = screen.getAllByText("Sin evaluar en entrevista");
+        expect(notAssessed).toHaveLength(2);
+        expect(notAssessed[0]).toHaveClass("verdict-not-assessed");
+    });
+
+    it("avisa de re-analizar si hay entrevista puntuada y ningún veredicto", async () => {
+        installFetchMock({
+            "GET /api/candidates/c1": () =>
+                jsonResponse({
+                    ...CANDIDATE,
+                    score: SCORE,
+                    interview: INTERVIEW_AFTER_8,
+                }),
+        });
+        renderPage();
+
+        expect(
+            await screen.findByText(/Vuelve a analizarlo/),
+        ).toBeInTheDocument();
+    });
+
+    it("no avisa de re-analizar cuando el análisis ya contrastó la entrevista", async () => {
+        installFetchMock({
+            "GET /api/candidates/c1": () => jsonResponse(CANDIDATE_ASSESSED),
+        });
+        renderPage();
+
+        // Se espera a que la página cargue antes de comprobar la ausencia.
+        expect(
+            await screen.findByText("✓ Confirmado en entrevista"),
+        ).toBeInTheDocument();
+        expect(screen.queryByText(/Vuelve a analizarlo/)).not.toBeInTheDocument();
     });
 });
 

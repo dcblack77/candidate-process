@@ -32,6 +32,41 @@ export interface EvidenceItem {
     type: EvidenceType;
 }
 
+/**
+ * Veredicto del CONTRASTE del CV contra la entrevista, por criterio (§13,
+ * ai/schemas/score-candidate.ts). En los análisis antiguos —hechos antes de
+ * que existiera el contraste— llega `null`.
+ */
+export type Verdict =
+    | "confirmed"
+    | "not_demonstrated"
+    | "contradicted"
+    | "not_assessed";
+
+/** Etiquetas en español del veredicto: qué prometía el CV vs qué demostró. */
+export const VERDICT_LABELS: Record<Verdict, string> = {
+    confirmed: "✓ Confirmado en entrevista",
+    not_demonstrated: "⚠ No demostrado",
+    contradicted: "✗ Contradicho",
+    not_assessed: "Sin evaluar en entrevista",
+};
+
+/** Sufijo de clase CSS del badge de cada veredicto (ver styles.css). */
+export const VERDICT_CLASSES: Record<Verdict, string> = {
+    confirmed: "verdict-confirmed",
+    not_demonstrated: "verdict-not-demonstrated",
+    contradicted: "verdict-contradicted",
+    not_assessed: "verdict-not-assessed",
+};
+
+/**
+ * Veredictos que NO aportan contraste: un análisis en el que todos los
+ * criterios están así se hizo sin tener en cuenta la entrevista.
+ */
+export function isAssessedVerdict(verdict: Verdict | null): boolean {
+    return verdict !== null && verdict !== "not_assessed";
+}
+
 /** Estados del análisis de un candidato (candidate.repository). */
 export type AnalysisStatus =
     | "pending"
@@ -122,7 +157,15 @@ export interface CvSummary {
  * (scoring/analyze-candidate.usecase.ts). Llega como `unknown`.
  */
 export interface EvidenceSummary {
-    criteria: Record<Criterion, { rationale: string; evidence: EvidenceItem[] }>;
+    criteria: Record<
+        Criterion,
+        {
+            rationale: string;
+            evidence: EvidenceItem[];
+            /** Contraste CV/entrevista (§13); null en análisis antiguos. */
+            verdict: Verdict | null;
+        }
+    >;
     doubts: string[];
     risks: string[];
 }
@@ -144,13 +187,24 @@ export interface SuggestedCriterionScoreDTO {
     score: number;
     rationale: string;
     evidence: EvidenceItem[];
+    /** Resultado del contraste con la entrevista (§13). */
+    verdict: Verdict;
 }
 
 export interface AnalyzeResponseDTO {
     candidateId: string;
     analysisStatus: "analyzed";
     suggestedScores: Record<Criterion, SuggestedCriterionScoreDTO>;
+    /** Score de la RÚBRICA §06 (1-5): lo que promete el CV. */
+    cvScore: number;
+    /** @deprecated Alias histórico de `cvScore`; mismo valor. No usar en la UI. */
     finalScore: number;
+    /** Nota global de entrevista (1-10) o null si no hay respuestas puntuadas. */
+    interviewScore: number | null;
+    /** Score final combinado (§06): `cvScore*0.30 + (interviewScore/2)*0.70`. */
+    overallScore: number;
+    /** true si el combinado es todavía solo el score de CV (sin entrevista). */
+    provisional: boolean;
     confidence: number;
     doubts: string[];
     risks: string[];
@@ -161,9 +215,24 @@ export interface AnalyzeResponseDTO {
 export interface CandidateScoreDTO {
     candidateId: string;
     scores: Record<Criterion, number | null>;
+    /** Score de la rúbrica §06 (1-5); null si falta algún criterio. */
+    cvScore: number | null;
+    /** @deprecated Alias histórico de `cvScore`; mismo valor. No usar en la UI. */
     finalScore: number | null;
+    /** Nota global de entrevista (1-10) o null si no hay respuestas puntuadas. */
+    interviewScore: number | null;
+    /** Score final combinado 30% CV / 70% entrevista; null sin score de CV. */
+    overallScore: number | null;
+    /** true mientras el combinado sea solo el score de CV. */
+    provisional: boolean;
     confidence: number | null;
     evidenceSummary: unknown;
+    /**
+     * Veredicto del contraste CV/entrevista por criterio (§13), extraído por
+     * el backend de `evidenceSummary.criteria[*].verdict`. null en los
+     * análisis antiguos, anteriores al contraste.
+     */
+    verdicts: Record<Criterion, Verdict | null>;
     manualNotes: string | null;
     updatedAt: string;
 }
@@ -278,7 +347,21 @@ export interface RankingEntryDTO {
     position: number;
     candidateId: string;
     name: string;
+    /** Score de la RÚBRICA §06 (1-5): lo que promete el CV. */
+    cvScore: number;
+    /** @deprecated Alias histórico de `cvScore`; mismo valor. No usar en la UI. */
     finalScore: number;
+    /**
+     * Score final COMBINADO (§06): `cvScore*0.30 + (interviewScore/2)*0.70`.
+     * Es el valor por el que el backend ORDENA el ranking.
+     */
+    overallScore: number;
+    /**
+     * true si el candidato aún no tiene entrevista puntuada: `overallScore`
+     * es solo su score de CV y todavía no es comparable con los entrevistados
+     * (no se le penaliza, pero su score no es definitivo).
+     */
+    provisional: boolean;
     scores: Record<Criterion, number>;
     confidence: number | null;
     evidenceSummary: Partial<Record<Criterion, string>>;
@@ -286,7 +369,8 @@ export interface RankingEntryDTO {
     keyQuestions: string[];
     /**
      * Nota global de entrevista (1-10, 1 decimal); null sin respuestas
-     * puntuadas. NO entra en finalScore: solo desempata (§15).
+     * puntuadas. NO entra en `cvScore` (rúbrica) pero sí en `overallScore`
+     * con el peso de `scoreWeights.interview`, y sigue desempatando (§15).
      */
     interviewScore: number | null;
     /** Media de entrevista por criterio; null en los criterios sin respuestas. */
@@ -301,8 +385,20 @@ export interface UnscoredCandidateDTO {
     analysisStatus: AnalysisStatus;
 }
 
+/**
+ * Pesos del score final combinado (§06): CV vs entrevista. Única fuente:
+ * `scoring/weights.ts` del backend. La UI NUNCA los hardcodea.
+ */
+export interface ScoreWeightsDTO {
+    cv: number;
+    interview: number;
+}
+
 export interface RankingResponseDTO {
+    /** Pesos de los cinco criterios de la rúbrica (score de CV). */
     weights: Record<Criterion, number>;
+    /** Pesos del combinado CV/entrevista del score final. */
+    scoreWeights: ScoreWeightsDTO;
     entries: RankingEntryDTO[];
     unscored: UnscoredCandidateDTO[];
 }

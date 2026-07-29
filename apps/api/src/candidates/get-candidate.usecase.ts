@@ -42,11 +42,12 @@ export class GetCandidateUseCase {
         }
         const score = this.scores.findByCandidate(id);
         const questions = this.questions.listByCandidate(id);
+        const interview = interviewScoreOf(questions);
         return toCandidateDetail(
             row,
-            score ? toCandidateScoreDTO(score) : null,
+            score ? toCandidateScoreDTO(score, interview.overall) : null,
             questions.map(toQuestionDTO),
-            interviewScoreOf(questions),
+            interview,
         );
     }
 }

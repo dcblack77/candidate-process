@@ -16,9 +16,13 @@ import {
     EvidenceSummary,
     InterviewQuestionDTO,
     InterviewSummaryDTO,
+    isAssessedVerdict,
     MAX_ANSWER_NOTES_LENGTH,
     MAX_ANSWER_SCORE,
     MIN_ANSWER_SCORE,
+    Verdict,
+    VERDICT_CLASSES,
+    VERDICT_LABELS,
 } from "../api/types";
 import { EvidenceList } from "../components/EvidenceList";
 import {
@@ -105,6 +109,13 @@ export function CandidateDetailPage() {
     const doubts =
         evidenceSummary?.doubts ?? summary?.doubts_for_interview ?? [];
     const risks = evidenceSummary?.risks ?? summary?.risks ?? [];
+    const verdicts = extractVerdicts(candidate, evidenceSummary);
+    // Análisis anterior al contraste CV/entrevista: hay respuestas puntuadas
+    // pero ningún criterio las tuvo en cuenta (§13).
+    const staleAnalysis =
+        candidate.score !== null &&
+        (candidate.interview?.answeredCount ?? 0) > 0 &&
+        CRITERIA.every((criterion) => !isAssessedVerdict(verdicts[criterion]));
 
     return (
         <>
@@ -147,11 +158,28 @@ export function CandidateDetailPage() {
                 <p className="muted small">
                     Las evidencias <strong>explícitas</strong> aparecen en el
                     CV; las <em>inferidas</em> son deducciones del modelo y se
-                    muestran atenuadas: valídalas en entrevista.
+                    muestran atenuadas: valídalas en entrevista. El{" "}
+                    <strong>veredicto</strong> de cada criterio contrasta lo que
+                    prometía el CV con lo que se demostró en la entrevista.
                 </p>
+                {staleAnalysis && (
+                    <p className="alert alert-warning small" role="status">
+                        Este candidato ya tiene respuestas de entrevista
+                        puntuadas, pero su análisis se hizo antes de
+                        registrarlas: ningún criterio está contrastado. Vuelve a
+                        analizarlo para que el modelo tenga en cuenta la
+                        entrevista.
+                    </p>
+                )}
                 {CRITERIA.map((criterion) => (
                     <div key={criterion}>
-                        <h3>{CRITERION_LABELS[criterion]}</h3>
+                        <h3>
+                            {CRITERION_LABELS[criterion]}{" "}
+                            {/* Sin análisis todavía no hay nada que contrastar. */}
+                            {candidate.score !== null && (
+                                <VerdictBadge verdict={verdicts[criterion]} />
+                            )}
+                        </h3>
                         {evidenceSummary?.criteria?.[criterion]?.rationale && (
                             <p className="small muted">
                                 {evidenceSummary.criteria[criterion].rationale}
@@ -210,6 +238,45 @@ export function CandidateDetailPage() {
     );
 }
 
+// ── Veredicto del contraste CV/entrevista (§13) ────────────────────────────
+
+/**
+ * Badge del veredicto de un criterio. `null` se trata como `not_assessed`
+ * (análisis antiguos, anteriores al contraste) y se muestra discreto: no es
+ * una alerta, solo la ausencia de contraste.
+ */
+function VerdictBadge({ verdict }: { verdict: Verdict | null }) {
+    const value: Verdict = verdict ?? "not_assessed";
+    return (
+        <span
+            className={`badge ${VERDICT_CLASSES[value]}`}
+            data-verdict={value}
+            title="Contraste entre lo que prometía el CV y lo demostrado en la entrevista"
+        >
+            {VERDICT_LABELS[value]}
+        </span>
+    );
+}
+
+/**
+ * Veredictos a mostrar: los que ya extrae el backend (`score.verdicts`) y,
+ * como respaldo, los del propio `evidence_summary` por si llega una respuesta
+ * antigua sin el campo derivado.
+ */
+function extractVerdicts(
+    candidate: CandidateDetailDTO,
+    evidenceSummary: EvidenceSummary | null,
+): Record<Criterion, Verdict | null> {
+    const result = {} as Record<Criterion, Verdict | null>;
+    for (const criterion of CRITERIA) {
+        result[criterion] =
+            candidate.score?.verdicts?.[criterion] ??
+            evidenceSummary?.criteria[criterion]?.verdict ??
+            null;
+    }
+    return result;
+}
+
 // ── Parsers defensivos de columnas JSON (llegan como unknown) ──────────────
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -243,6 +310,13 @@ function parseEvidenceItems(value: unknown): EvidenceItem[] {
     );
 }
 
+/** Veredicto persistido; null si falta o es un valor desconocido. */
+function parseVerdict(value: unknown): Verdict | null {
+    return typeof value === "string" && value in VERDICT_LABELS
+        ? (value as Verdict)
+        : null;
+}
+
 function parseEvidenceMap(value: unknown): Record<Criterion, EvidenceItem[]> {
     const map = {} as Record<Criterion, EvidenceItem[]>;
     for (const criterion of CRITERIA) {
@@ -266,6 +340,7 @@ export function parseEvidenceSummary(value: unknown): EvidenceSummary | null {
                     ? entry.rationale
                     : "",
             evidence: isRecord(entry) ? parseEvidenceItems(entry.evidence) : [],
+            verdict: isRecord(entry) ? parseVerdict(entry.verdict) : null,
         };
     }
     const asList = (v: unknown): string[] =>
@@ -376,6 +451,7 @@ function ScoreEditor({
     return (
         <section className="card">
             <h2>Puntuaciones</h2>
+            <ScoreOverview score={savedScore} />
             {/* noValidate: la validación 1-5 la hace la UI con mensajes propios. */}
             <form onSubmit={handleSubmit} noValidate>
                 <div className="score-grid">
@@ -424,17 +500,78 @@ function ScoreEditor({
                     >
                         {saving ? "Guardando…" : "Guardar puntuaciones"}
                     </button>
-                    {savedScore?.finalScore != null && (
-                        <span>
-                            Score final:{" "}
-                            <span className="final-score">
-                                {savedScore.finalScore.toFixed(2)}
-                            </span>
-                        </span>
-                    )}
                 </div>
             </form>
         </section>
+    );
+}
+
+/**
+ * Los DOS niveles de score (§06) de un vistazo: lo que promete el CV, la nota
+ * de entrevista y el combinado que ordena la comparativa. Los tres salen del
+ * backend; la UI nunca los recalcula.
+ */
+function ScoreOverview({ score }: { score: CandidateScoreDTO | null }) {
+    if (score === null || score.cvScore === null) {
+        return (
+            <p className="muted small">
+                Aún no hay puntuaciones: analiza el candidato o rellena la
+                rúbrica a mano.
+            </p>
+        );
+    }
+    return (
+        <div className="score-overview" aria-label="Resumen de puntuaciones">
+            <div className="score-box">
+                <span className="score-box-value">
+                    {score.cvScore.toFixed(2)}
+                </span>
+                <span className="score-box-scale">/5</span>
+                <span className="score-box-caption muted small">
+                    CV · lo que promete
+                </span>
+            </div>
+            <span className="score-op" aria-hidden="true">
+                +
+            </span>
+            <div className="score-box">
+                <span className="score-box-value">
+                    {score.interviewScore === null
+                        ? "—"
+                        : score.interviewScore.toFixed(1)}
+                </span>
+                <span className="score-box-scale">/10</span>
+                <span className="score-box-caption muted small">
+                    Entrevista · lo que demostró
+                </span>
+            </div>
+            <span className="score-op" aria-hidden="true">
+                =
+            </span>
+            <div className="score-box score-box-final">
+                <span className="score-box-value final-score">
+                    {score.overallScore === null
+                        ? "—"
+                        : score.overallScore.toFixed(2)}
+                </span>
+                <span className="score-box-scale">/5</span>
+                <span className="score-box-caption muted small">
+                    Score final · ordena la comparativa
+                </span>
+                {score.provisional && (
+                    <span className="score-box-caption">
+                        <span className="badge badge-provisional">
+                            Provisional · pendiente de entrevista
+                        </span>
+                    </span>
+                )}
+            </div>
+            <p className="muted small score-overview-note">
+                El score final combina el CV con la nota de entrevista (llevada
+                a escala 1-5). Sin respuestas puntuadas es todavía solo el score
+                del CV, y por eso se marca como provisional.
+            </p>
+        </div>
     );
 }
 
@@ -548,8 +685,8 @@ function InterviewSummaryPanel({
             <table className="interview-table">
                 <caption className="small muted">
                     Media por criterio (escala 1-10; 10 = la respuesta que más
-                    se ajusta a lo esperado). No entra en el score final: solo
-                    desempata en la comparativa.
+                    se ajusta a lo esperado). No cambia el score del CV, pero es
+                    la parte con más peso del score final (§06).
                 </caption>
                 <thead>
                     <tr>

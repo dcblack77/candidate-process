@@ -13,12 +13,17 @@ const RANKING: RankingResponseDTO = {
         production: 0.15,
         stack: 0.1,
     },
+    scoreWeights: { cv: 0.3, interview: 0.7 },
     entries: [
         {
             position: 1,
             candidateId: "c1",
             name: "Ada Lovelace",
+            // CV 4.35 + entrevista 8.4 → 4.35*0.3 + 4.2*0.7 = 4.25.
+            cvScore: 4.35,
             finalScore: 4.35,
+            overallScore: 4.25,
+            provisional: false,
             scores: {
                 adaptability: 5,
                 fundamentals: 4,
@@ -45,7 +50,11 @@ const RANKING: RankingResponseDTO = {
             position: 2,
             candidateId: "c2",
             name: "Grace Hopper",
+            // Sin entrevista puntuada: el combinado es todavía solo el CV.
+            cvScore: 3.9,
             finalScore: 3.9,
+            overallScore: 3.9,
+            provisional: true,
             scores: {
                 adaptability: 4,
                 fundamentals: 4,
@@ -109,9 +118,7 @@ describe("RankingPage", () => {
         expect(adaIndex).toBeGreaterThan(0);
         expect(graceIndex).toBeGreaterThan(adaIndex);
 
-        // Scores finales y badge de revisión manual.
-        expect(screen.getByText("4.35")).toBeInTheDocument();
-        expect(screen.getByText("3.90")).toBeInTheDocument();
+        // Badge de revisión manual y desempate.
         const reviewBadge = screen.getByText("Revisión manual");
         expect(reviewBadge).toHaveClass("badge-warning");
         const graceRow = rows[graceIndex]!;
@@ -159,6 +166,99 @@ describe("RankingPage", () => {
         expect(
             screen.getByText(/Fundamentos: 7\.5\/10 \(2 respuestas\)/),
         ).toBeInTheDocument();
+    });
+
+    it("muestra las tres columnas y usa overallScore (no finalScore) como score final", async () => {
+        installFetchMock({
+            "GET /api/ranking": () => jsonResponse(RANKING),
+        });
+        render(
+            <MemoryRouter>
+                <RankingPage />
+            </MemoryRouter>,
+        );
+
+        // Las tres cabeceras: CV (rúbrica), Entrevista (1-10) y score final.
+        expect(
+            await screen.findByRole("columnheader", { name: /^CV/ }),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByRole("columnheader", { name: /Score final/ }),
+        ).toBeInTheDocument();
+
+        const adaRow = screen
+            .getAllByRole("row")
+            .find((row) => row.textContent?.includes("Ada Lovelace"))!;
+        // CV y combinado son valores DISTINTOS: se ve que ordena el combinado.
+        expect(within(adaRow).getByText("4.35")).toBeInTheDocument();
+        expect(within(adaRow).getByText("8.4/10")).toBeInTheDocument();
+        expect(within(adaRow).getByText("4.25")).toBeInTheDocument();
+        // finalScore (deprecado) no se usa como score principal.
+        expect(
+            within(adaRow).queryByText(RANKING.entries[0]!.finalScore.toFixed(2), {
+                selector: "strong",
+            }),
+        ).not.toBeInTheDocument();
+    });
+
+    it("los porcentajes de la fórmula salen de scoreWeights, no hardcodeados", async () => {
+        installFetchMock({
+            // Pesos deliberadamente distintos del 30/70 por defecto.
+            "GET /api/ranking": () =>
+                jsonResponse({
+                    ...RANKING,
+                    scoreWeights: { cv: 0.4, interview: 0.6 },
+                }),
+        });
+        render(
+            <MemoryRouter>
+                <RankingPage />
+            </MemoryRouter>,
+        );
+
+        expect(
+            await screen.findByText(/Score final = CV×40% \+ Entrevista×60%/),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByRole("columnheader", { name: /^CV/ }).textContent,
+        ).toContain("40%");
+        expect(
+            screen.getByRole("columnheader", { name: /Entrevista/ }).textContent,
+        ).toContain("60%");
+    });
+
+    it("marca como provisional solo a quien no tiene entrevista puntuada", async () => {
+        installFetchMock({
+            "GET /api/ranking": () => jsonResponse(RANKING),
+        });
+        render(
+            <MemoryRouter>
+                <RankingPage />
+            </MemoryRouter>,
+        );
+
+        const rows = await screen.findAllByRole("row");
+        const adaRow = rows.find((row) =>
+            row.textContent?.includes("Ada Lovelace"),
+        )!;
+        const graceRow = rows.find((row) =>
+            row.textContent?.includes("Grace Hopper"),
+        )!;
+
+        const badge = within(graceRow).getByText(
+            /Provisional · pendiente de entrevista/,
+        );
+        expect(badge).toHaveClass("badge-provisional");
+        // El asterisco del score remite a la nota al pie.
+        expect(within(graceRow).getByText("3.90*")).toBeInTheDocument();
+        expect(
+            screen.getByText(/aún no tiene respuestas de entrevista puntuadas/),
+        ).toBeInTheDocument();
+
+        // Ada sí está entrevistada: ni badge ni asterisco.
+        expect(
+            within(adaRow).queryByText(/Provisional/),
+        ).not.toBeInTheDocument();
     });
 
     it("el badge dice 'desempatado por entrevista' cuando tieBreakApplied es interview", async () => {

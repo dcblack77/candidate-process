@@ -6,7 +6,11 @@ import { App } from "../src/app";
 import { Database, DB } from "../src/db/database";
 import { AppEnv, ENV, loadEnv } from "../src/env";
 import { RANKING_RATE_KEY } from "../src/ranking/get-ranking.usecase";
-import { WEIGHTS } from "../src/scoring/weights";
+import {
+    CV_WEIGHT,
+    INTERVIEW_WEIGHT,
+    WEIGHTS,
+} from "../src/scoring/weights";
 import { RateLimiter } from "../src/security/rate-limit";
 import { AuditRepository } from "../src/shared/audit";
 import { newId } from "../src/shared/ids";
@@ -81,16 +85,18 @@ describe("GET /ranking", () => {
         expect(res.body.error.code).toBe("NOT_FOUND");
     });
 
-    it("proceso vacío: entries y unscored vacíos, weights presentes (única fuente)", async () => {
+    it("proceso vacío: entries y unscored vacíos, weights y scoreWeights presentes (única fuente)", async () => {
         await createProcess();
         const res = await request.get("/ranking");
 
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
             weights: WEIGHTS,
+            scoreWeights: { cv: CV_WEIGHT, interview: INTERVIEW_WEIGHT },
             entries: [],
             unscored: [],
         });
+        expect(res.body.scoreWeights).toEqual({ cv: 0.3, interview: 0.7 });
     });
 
     it("ordena por score final y aplica el desempate por adaptabilidad", async () => {
@@ -151,6 +157,139 @@ describe("GET /ranking", () => {
         });
         expect(res.body.entries[2].tieBreakApplied).toBe("adaptability");
         expect(res.body.weights).toEqual(WEIGHTS);
+    });
+
+    describe("score final combinado 30% CV / 70% entrevista (§06)", () => {
+        /** Puntúa una respuesta de entrevista de `criterion` con `value`. */
+        async function answer(
+            candidateId: string,
+            criterion: string,
+            value: number,
+        ): Promise<void> {
+            const questionId = newId();
+            db.prepare(
+                `INSERT INTO interview_question (id, candidate_id, criterion, dimension, question)
+                 VALUES (?, ?, ?, 'velocidad', 'Pregunta')`,
+            ).run(questionId, candidateId, criterion);
+            await request
+                .patch(
+                    `/candidates/${candidateId}/questions/${questionId}/answer`,
+                )
+                .send({ score: value })
+                .expect(200);
+        }
+
+        it("ordena por el combinado: el mejor CV con peor entrevista cae al fondo", async () => {
+            await createProcess();
+            const promising = await createCandidate("Promete Mucho");
+            const solid = await createCandidate("Lo Demuestra");
+
+            // CV 4.65 pero entrevista floja (3) ⇒ 1.395 + 1.05 = 2.44.
+            await score(promising, {
+                adaptability: 5,
+                fundamentals: 5,
+                depth: 4,
+                production: 4,
+                stack: 5,
+            });
+            await answer(promising, "adaptability", 3);
+            // CV 3.0 con entrevista excelente (9) ⇒ 0.90 + 3.15 = 4.05.
+            await score(solid, {
+                adaptability: 3,
+                fundamentals: 3,
+                depth: 3,
+                production: 3,
+                stack: 3,
+            });
+            await answer(solid, "adaptability", 9);
+
+            const res = await request.get("/ranking");
+            expect(res.status).toBe(200);
+            expect(
+                res.body.entries.map((e: { name: string }) => e.name),
+            ).toEqual(["Lo Demuestra", "Promete Mucho"]);
+            expect(res.body.entries[0]).toMatchObject({
+                cvScore: 3,
+                finalScore: 3,
+                interviewScore: 9,
+                overallScore: 4.05,
+                provisional: false,
+            });
+            expect(res.body.entries[1]).toMatchObject({
+                cvScore: 4.65,
+                overallScore: 2.44,
+                provisional: false,
+            });
+        });
+
+        it("sin entrevista puntuada: overallScore = cvScore y provisional=true (no se penaliza)", async () => {
+            await createProcess();
+            const none = await createCandidate("Sin Entrevista");
+            const some = await createCandidate("Con Entrevista Floja");
+
+            await score(none, {
+                adaptability: 3,
+                fundamentals: 3,
+                depth: 3,
+                production: 3,
+                stack: 3,
+            });
+            await score(some, {
+                adaptability: 3,
+                fundamentals: 3,
+                depth: 3,
+                production: 3,
+                stack: 3,
+            });
+            await answer(some, "adaptability", 2);
+
+            const res = await request.get("/ranking");
+            // 3.00 (provisional) por delante de 0.90 + 0.70 = 1.60.
+            expect(
+                res.body.entries.map((e: { name: string }) => e.name),
+            ).toEqual(["Sin Entrevista", "Con Entrevista Floja"]);
+            expect(res.body.entries[0]).toMatchObject({
+                cvScore: 3,
+                interviewScore: null,
+                overallScore: 3,
+                provisional: true,
+            });
+            expect(res.body.entries[1]).toMatchObject({
+                overallScore: 1.6,
+                provisional: false,
+            });
+        });
+
+        it("un candidato sin entrevista NO adelanta a quien la tiene y la aprobó", async () => {
+            await createProcess();
+            const provisional = await createCandidate("Provisional");
+            const interviewed = await createCandidate("Entrevistado");
+
+            // CV 3.0 sin entrevista ⇒ 3.00 provisional.
+            await score(provisional, {
+                adaptability: 3,
+                fundamentals: 3,
+                depth: 3,
+                production: 3,
+                stack: 3,
+            });
+            // Mismo CV pero entrevista 9 ⇒ 0.90 + 3.15 = 4.05.
+            await score(interviewed, {
+                adaptability: 3,
+                fundamentals: 3,
+                depth: 3,
+                production: 3,
+                stack: 3,
+            });
+            await answer(interviewed, "adaptability", 9);
+
+            const res = await request.get("/ranking");
+            expect(
+                res.body.entries.map((e: { name: string }) => e.name),
+            ).toEqual(["Entrevistado", "Provisional"]);
+            expect(res.body.entries[0].provisional).toBe(false);
+            expect(res.body.entries[1].provisional).toBe(true);
+        });
     });
 
     it("desempata por confianza cuando los cinco criterios empatan", async () => {

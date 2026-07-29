@@ -12,7 +12,7 @@ import {
     CandidateScoreRow,
     ScoreRepository,
 } from "../scoring/score.repository";
-import { parseJsonColumn } from "../scoring/scoring.dto";
+import { parseJsonColumn, verdictsOf } from "../scoring/scoring.dto";
 import {
     computeFinalScore,
     CriterionScores,
@@ -81,7 +81,7 @@ export class ExportUseCase {
             score: CandidateScoreRow;
             summary: string | null;
             scores: CriterionScores;
-            finalScore: number;
+            cvScore: number;
             questions: ExportQuestionData[];
             interview: InterviewScore;
             interviewScore: number | null;
@@ -111,7 +111,7 @@ export class ExportUseCase {
                 score,
                 summary: professionalSummaryOf(candidate.cv_summary),
                 scores: criterionScores,
-                finalScore:
+                cvScore:
                     score.final_score ?? computeFinalScore(criterionScores),
                 questions: questionRows.map((question) => ({
                     question: question.question,
@@ -130,13 +130,16 @@ export class ExportUseCase {
             (entry) => ({
                 position: entry.position,
                 name: entry.name,
-                finalScore: entry.finalScore,
+                cvScore: entry.cvScore,
+                overallScore: entry.overallScore,
+                provisional: entry.provisional,
                 scores: entry.scores,
                 confidence: entry.confidence,
                 needsManualReview: entry.needsManualReview,
                 summary: entry.summary,
                 strengths: strengthsOf(entry.score, entry.scores),
                 risks: risksOf(entry.score),
+                verdicts: verdictsOf(parseJsonColumn(entry.score.evidence_summary)),
                 questions: entry.questions,
                 interview: entry.interview,
                 manualNotes: entry.score.manual_notes,
