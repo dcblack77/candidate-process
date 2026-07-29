@@ -1,0 +1,24 @@
+# Dependencias
+node_modules/
+
+# Build
+dist/
+*.tsbuildinfo
+
+# Base de datos local (nunca se versionan datos de candidatos)
+data/*.db
+data/*.db-*
+
+# Entorno
+.env
+.env.local
+.env.*.local
+
+# Cobertura y logs
+coverage/
+*.log
+
+# SO / IDE
+.DS_Store
+.idea/
+.vscode/

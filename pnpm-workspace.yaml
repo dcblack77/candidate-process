@@ -1,0 +1,13 @@
+# Workspace pnpm: cada aplicación vive en apps/*
+packages:
+  - "apps/*"
+
+# pnpm 11+ exige aprobar explícitamente los paquetes con scripts de
+# instalación (postinstall). Estos son los que necesitamos compilar:
+# - better-sqlite3: binding nativo de SQLite
+# - esbuild: usado por tsx/vitest
+# - unrs-resolver: usado por typescript-eslint
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  unrs-resolver: true
