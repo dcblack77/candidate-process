@@ -52,6 +52,16 @@ export class App extends AppExpress {
         ]);
     }
 
+    /**
+     * Contenedor DI ya configurado. Se expone SOLO para los tests de
+     * integración: necesitan resolver singletons de proceso (p. ej. el
+     * contador de exportaciones por sesión) y dejarlos limpios entre casos.
+     * El código de producción no lo usa: resuelve todo por @inject.
+     */
+    get diContainer(): AppContainer {
+        return this.container;
+    }
+
     protected override globalConfiguration(): void {
         // Sin prefijo global: las rutas del blueprint (§10) cuelgan de la raíz.
         this.forceLocalhostBinding();

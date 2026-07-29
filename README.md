@@ -58,7 +58,7 @@ scripts/    # smoke.sh
 - El **CV original nunca se persiste**: upload en memoria, extracción de texto, resumen con el modelo y descarte del buffer. Solo se guarda el resumen estructurado.
 - Todo el procesamiento de IA es **local**; ningún dato sale de la máquina.
 - La API escucha **solo en 127.0.0.1** (verificación activa en el arranque). La UI se expone a la LAN por decisión explícita (ver "Acceso desde la red local"); todo el tráfico hacia la API pasa por el proxy local de Vite.
-- Los exports **excluyen por defecto** las notas privadas; incluirlas exige un flag explícito y queda auditado.
+- Los exports **excluyen por defecto** las notas privadas; incluirlas exige un flag explícito y queda auditado. Vale para los dos formatos: la descarga en Markdown y la vista de impresión (`/export/print`), que maqueta el documento en A4 para guardarlo como PDF desde el navegador. Esa vista se pinta con React a partir de datos estructurados: nunca convierte el markdown a HTML (el contenido viene del modelo y del CV).
 - Nada de contenido de CVs, resúmenes o notas en logs ni en mensajes de error.
 - Al cerrar el proceso, los datos se **borran en cascada** previa confirmación explícita.
 

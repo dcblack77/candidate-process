@@ -4,6 +4,7 @@ import supertest from "supertest";
 import { App } from "../src/app";
 import { Database, DB } from "../src/db/database";
 import { AppEnv, ENV, loadEnv } from "../src/env";
+import { ExportSessionCounter } from "../src/export/export-session";
 import { RateLimiter } from "../src/security/rate-limit";
 import { AuditRepository } from "../src/shared/audit";
 import { createTestDb } from "./helpers";
@@ -24,6 +25,12 @@ export interface TestApp {
     db: Database;
     /** Cliente supertest apuntando a la app real. */
     request: ReturnType<typeof supertest>;
+    /**
+     * Vacía el contador de exportaciones por sesión (§16: 10 por sesión de
+     * la API). Es un singleton del contenedor y NO lo limpia `resetDb`: sin
+     * esto, los tests de export se contaminan entre sí.
+     */
+    resetExportCounter(): void;
     /** Cierra el servidor HTTP (llamar en afterAll). */
     close(): Promise<void>;
 }
@@ -45,6 +52,8 @@ export async function createTestApp(): Promise<TestApp> {
     return {
         db,
         request: supertest(server),
+        resetExportCounter: () =>
+            app.diContainer.Container.get(ExportSessionCounter).reset(),
         close: () =>
             new Promise<void>((resolve, reject) => {
                 server.close((error) => (error ? reject(error) : resolve()));

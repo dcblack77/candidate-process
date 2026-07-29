@@ -421,10 +421,84 @@ export type ExportInclude = {
     -readonly [K in keyof typeof DEFAULT_EXPORT_INCLUDE]: boolean;
 };
 
+/**
+ * Formatos de POST /export (§19). `markdown` es el default histórico;
+ * `structured` devuelve los mismos datos en JSON para la vista de impresión
+ * del navegador (de ahí sale el PDF: no hay generador de PDF en el backend).
+ */
+export type ExportFormat = "markdown" | "structured";
+
 export interface ExportResponseDTO {
     format: "markdown";
     filename: string;
     content: string;
+    exportsUsedThisSession: number;
+    exportsLimit: number;
+}
+
+/** Pregunta recomendada dentro del export estructurado. */
+export interface ExportQuestionDTO {
+    question: string;
+    /** Nota 1-10 de la respuesta; null si no está puntuada. */
+    answerScore: number | null;
+    /**
+     * Texto de la respuesta (dato privado §17): el backend lo envía SOLO con
+     * `include.privateNotes=true`; en cualquier otro caso llega null.
+     */
+    answerNotes: string | null;
+}
+
+/** Ficha de un candidato en el export estructurado. */
+export interface ExportCandidateDTO {
+    position: number;
+    name: string;
+    /** Score de la rúbrica (1-5): lo que promete el CV. */
+    cvScore: number;
+    /** Score final combinado CV/entrevista: el que ordena. */
+    overallScore: number;
+    provisional: boolean;
+    /** null si se excluyó "Puntuaciones por criterio". */
+    scores: Record<Criterion, number> | null;
+    /** null si se excluyó "Puntuaciones por criterio". */
+    verdicts: Record<Criterion, Verdict | null> | null;
+    confidence: number | null;
+    needsManualReview: boolean;
+    summary: string | null;
+    strengths: string[];
+    risks: string[];
+    /** Dudas pendientes de validar en entrevista (van con los riesgos). */
+    doubts: string[];
+    questions: ExportQuestionDTO[];
+    interview: InterviewSummaryDTO;
+    /** Notas del evaluador: solo con `include.privateNotes=true`; si no, null. */
+    manualNotes: string | null;
+}
+
+/**
+ * Respuesta de POST /export con `format: "structured"`: los datos ya
+ * filtrados por `include` que la vista de impresión maqueta con React.
+ *
+ * NUNCA se renderiza markdown como HTML a partir de esto: el contenido viene
+ * del modelo y del CV y podría traer sintaxis maliciosa (enlaces o imágenes
+ * de exfiltración). Todo se pinta como texto con el escapado de React.
+ */
+export interface ExportStructuredResponseDTO {
+    format: "structured";
+    /** Nombre sugerido del PDF (`export-<slug>-<fecha>.pdf`). */
+    filename: string;
+    /** Marca de tiempo ISO de la generación. */
+    generatedAt: string;
+    roleTitle: string;
+    roleContext: string | null;
+    /** Pesos de la rúbrica (única fuente: el backend). */
+    weights: Record<Criterion, number>;
+    /** Pesos del combinado CV/entrevista (misma única fuente). */
+    scoreWeights: ScoreWeightsDTO;
+    entries: ExportCandidateDTO[];
+    /** Nombres de los candidatos sin puntuación completa. */
+    unscored: string[];
+    /** Banderas aplicadas: la portada avisa si lleva información privada. */
+    include: ExportInclude;
     exportsUsedThisSession: number;
     exportsLimit: number;
 }

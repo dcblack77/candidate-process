@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { friendlyMessage } from "../api/errors";
 import {
@@ -7,6 +8,7 @@ import {
     ExportResponseDTO,
 } from "../api/types";
 import { ErrorAlert, Spinner } from "../components/ui";
+import { usePrintExport } from "../context/PrintExportContext";
 
 /** Etiquetas en español de cada sección exportable. */
 const INCLUDE_LABELS: Record<keyof ExportInclude, string> = {
@@ -14,7 +16,7 @@ const INCLUDE_LABELS: Record<keyof ExportInclude, string> = {
     scoresByCriterion: "Puntuaciones por criterio",
     summary: "Resumen profesional",
     strengths: "Fortalezas",
-    risks: "Riesgos",
+    risks: "Riesgos y dudas pendientes",
     questions: "Preguntas de entrevista",
     privateNotes: "Notas privadas",
     extractedText: "Texto extraído del CV",
@@ -28,6 +30,7 @@ const INCLUDE_HINTS: Partial<Record<keyof ExportInclude, string>> = {
         "el peso y la nota de cada criterio, y el veredicto del contraste CV/entrevista (confirmado, no demostrado o contradicho)",
     privateNotes:
         "notas privadas del evaluador y notas de las respuestas de entrevista",
+    risks: "los riesgos detectados y, en el PDF, las dudas pendientes de validar en entrevista",
     questions:
         "las notas numéricas de las respuestas (1-10) salen siempre que se incluyan las preguntas",
 };
@@ -40,14 +43,22 @@ const SENSITIVE_KEYS: ReadonlyArray<keyof ExportInclude> = [
 
 /**
  * Pantalla Exportar (§21/§19): selección de secciones con los DEFAULTS
- * SEGUROS del backend, vista previa del Markdown y descarga local.
+ * SEGUROS del backend, vista previa del Markdown con descarga local y, como
+ * alternativa, la vista de impresión del navegador para guardar un PDF.
+ *
+ * Cada generación (markdown o PDF) consume una de las 10 exportaciones de la
+ * sesión (§16): el botón «Ver como PDF» llama UNA vez a la API y entrega los
+ * datos a /export/print, que ya no vuelve a pedirlos.
  */
 export function ExportPage() {
+    const navigate = useNavigate();
+    const { setDocument } = usePrintExport();
     const [include, setInclude] = useState<ExportInclude>({
         ...DEFAULT_EXPORT_INCLUDE,
     });
     const [result, setResult] = useState<ExportResponseDTO | null>(null);
     const [generating, setGenerating] = useState(false);
+    const [preparingPrint, setPreparingPrint] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const sensitiveChecked = SENSITIVE_KEYS.filter((key) => include[key]);
@@ -65,6 +76,23 @@ export function ExportPage() {
             setError(friendlyMessage(err));
         } finally {
             setGenerating(false);
+        }
+    }
+
+    /**
+     * Genera el export estructurado y salta a la vista de impresión. No se
+     * reutiliza el markdown: son formatos distintos de la misma llamada.
+     */
+    async function handlePrintView() {
+        setPreparingPrint(true);
+        setError(null);
+        try {
+            setDocument(await api.exportStructured(include));
+            navigate("/export/print");
+        } catch (err) {
+            setError(friendlyMessage(err));
+        } finally {
+            setPreparingPrint(false);
         }
     }
 
@@ -137,7 +165,7 @@ export function ExportPage() {
                     <button
                         className="primary"
                         onClick={handleGenerate}
-                        disabled={generating}
+                        disabled={generating || preparingPrint}
                     >
                         {generating ? (
                             <>
@@ -147,6 +175,18 @@ export function ExportPage() {
                             "Generar export"
                         )}
                     </button>
+                    <button
+                        onClick={handlePrintView}
+                        disabled={generating || preparingPrint}
+                    >
+                        {preparingPrint ? (
+                            <>
+                                <Spinner /> Preparando…
+                            </>
+                        ) : (
+                            "Ver como PDF"
+                        )}
+                    </button>
                     {result && (
                         <span className="muted small">
                             Exportaciones usadas: {result.exportsUsedThisSession}
@@ -154,6 +194,12 @@ export function ExportPage() {
                         </span>
                     )}
                 </div>
+                <p className="muted small">
+                    «Generar export» prepara el Markdown (vista previa y
+                    descarga). «Ver como PDF» abre la vista de impresión del
+                    navegador con las mismas secciones: desde ahí, «Guardar como
+                    PDF». Cada una cuenta como una exportación de la sesión.
+                </p>
             </section>
 
             {result && (

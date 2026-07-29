@@ -675,6 +675,36 @@ Markdown primero
 PDF después
 ```
 
+Ambos están implementados. `POST /export` acepta `format`:
+
+- `format: "markdown"` (**default**, contrato original): devuelve el documento
+  markdown ya escrito, para vista previa y descarga.
+- `format: "structured"`: devuelve los MISMOS datos en JSON
+  (`{ filename, generatedAt, roleTitle, roleContext, weights, scoreWeights,
+  entries, unscored, include, ... }`) y la UI los maqueta en la ruta
+  `/export/print`. El PDF lo genera el **navegador** ("Imprimir → Guardar como
+  PDF", `@page { size: A4 }`): sin librerías de PDF y sin que la API escriba en
+  disco. El `filename` sugerido lleva extensión `.pdf`.
+
+Reglas comunes a los dos formatos: mismas banderas de `include` con los mismos
+defaults seguros, mismo consumo del límite de 10 exportaciones por sesión
+(§16) y misma auditoría (`export.generated` con el formato usado y
+`export.included_sensitive` si se piden notas privadas).
+
+**Seguridad de la vista de impresión**: el documento se renderiza SIEMPRE con
+React desde los datos estructurados (escapado automático). Está prohibido
+convertir el markdown a HTML (`dangerouslySetInnerHTML`, `innerHTML` o
+cualquier librería markdown→HTML): el contenido viene del modelo y del CV y
+podría traer enlaces o imágenes de exfiltración.
+
+La vista de impresión añade sobre el markdown una **portada** (rol, contexto,
+fecha, nº de candidatos, aviso de confidencialidad y, si procede, aviso de
+información privada) y las **dudas pendientes** de cada candidato, que viajan
+bajo la misma bandera `include.risks`. Los datos llegan a `/export/print`
+**en memoria** desde la pantalla Exportar: no se guardan en `sessionStorage`
+ni en el estado del router (§17) y la vista NUNCA vuelve a llamar a la API
+(consumiría otra exportación).
+
 ## 20. Estructura Técnica Recomendada
 
 ```text
@@ -739,6 +769,8 @@ PDF después
 - Vista previa.
 - Selección de información.
 - Exportación para líder.
+- Descarga en Markdown o vista de impresión A4 (`/export/print`) para guardar
+  en PDF desde el navegador.
 
 ### Cerrar Proceso
 
@@ -780,6 +812,9 @@ La primera versión está lista cuando:
 - Rol: único rol técnico.
 - Visibilidad: notas y puntuaciones privadas para mí.
 - Exportación: versión limitada para mostrar al líder.
+- PDF: vía vista de impresión del navegador (decisión de 2026-07-29). Cero
+  dependencias nuevas, la API no escribe en disco y el documento se renderiza
+  desde datos estructurados, nunca convirtiendo markdown a HTML.
 - Score final: combinado 30% CV / 70% entrevista (§06). Sin entrevista
   puntuada el score es el del CV y se marca como provisional.
 - Análisis: contrasta el CV con la entrevista y baja los criterios que no se

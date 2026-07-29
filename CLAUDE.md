@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pnpm install                 # instalar (workspace pnpm: apps/api + apps/web)
 pnpm dev                     # API (127.0.0.1:3010) + UI (127.0.0.1:5173) en paralelo
 pnpm dev:api / pnpm dev:web  # cada app por separado
-pnpm test                    # suite completa; api: 261 tests, web: 16
+pnpm test                    # suite completa; api: 267 tests, web: 37
 pnpm --filter api test -- <patrón>   # un spec concreto (p. ej. -- weights, -- cv)
 pnpm build                   # tsc estricto + bundle de web
 pnpm --filter api lint       # eslint del backend
@@ -26,6 +26,7 @@ Los tests del backend usan SQLite `:memory:` y un mock HTTP de llama.cpp — nun
 - **IA** `apps/api/src/ai/`: `LlmClient` (response_format json_schema + zod, reintentos con temperatura 0.2→0.4, cola de concurrencia 1, presupuesto de tokens). Prompts en `prompts/*.md` (raíz), cargados por `PromptLoader`; los comentarios HTML iniciales se eliminan antes de enviar.
 - **Frontend** `apps/web`: React + Vite, sin librerías de estado ni UI kits; CSS global con variables. Proxy `/api` → 127.0.0.1:3010. Tipos espejo de los DTOs en `src/api/types.ts` — si cambia un DTO del backend, actualizar el espejo. La UI escucha en 0.0.0.0 (accesible desde la LAN, decisión explícita del usuario del 2026-07-29; `WEB_HOST=127.0.0.1` la devuelve a solo-local); la API sigue solo en localhost y se alcanza únicamente vía el proxy.
 - `scoring/weights.ts` es la ÚNICA fuente de pesos (rúbrica y combinado 30/70) y desempates; el modelo nunca calcula el score final (el backend lo recalcula siempre) y el frontend consume los pesos vía `GET /ranking` (`weights` y `scoreWeights`).
+- **Export** (§19) `apps/api/src/export/`: `POST /export` acepta `format: "markdown"` (default, contrato original) o `"structured"`. El markdown lo escribe `markdown-builder.ts`; el structured devuelve LOS MISMOS datos en JSON y `structured-builder.ts` solo aplica `include` (nada de duplicar la selección de datos). La UI maqueta ese JSON en `/export/print` y el **navegador** genera el PDF: cero librerías nuevas y la API sigue sin escribir en disco. La vista de impresión NUNCA convierte markdown a HTML —prohibidos `dangerouslySetInnerHTML`, `innerHTML` y cualquier librería markdown→HTML— porque el contenido viene del modelo y del CV. Los datos llegan a la vista **en memoria** (`apps/web/src/context/PrintExportContext.tsx`), nunca por sessionStorage ni por el state del router (§17), y la vista no vuelve a llamar a la API (consumiría otra de las 10 exportaciones).
 - Límite de 5 regeneraciones de análisis = COUNT de `app_event` con `action='candidate.analyzed'`; 20 preguntas = COUNT en tabla; 10 exports/sesión = contador en memoria.
 - Errores: `AppError` con códigos tipados (`shared/errors.ts`) → `{error:{code,message}}`; los errores no controlados se loguean sin mensaje (solo tipo + frames).
 

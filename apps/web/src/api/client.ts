@@ -10,6 +10,7 @@ import {
     CvExtractResponseDTO,
     ExportInclude,
     ExportResponseDTO,
+    ExportStructuredResponseDTO,
     GenerateQuestionsResponseDTO,
     HealthResponseDTO,
     ProcessPurgeResponseDTO,
@@ -179,7 +180,24 @@ export const api = {
     getRanking(): Promise<RankingResponseDTO> {
         return request("/ranking");
     },
+    /** Export en markdown: vista previa y descarga (§19). */
     exportReport(include: ExportInclude): Promise<ExportResponseDTO> {
-        return request("/export", jsonInit("POST", { include }));
+        return request(
+            "/export",
+            jsonInit("POST", { format: "markdown", include }),
+        );
+    },
+    /**
+     * Export estructurado para la vista de impresión (§19). Consume una
+     * unidad del límite de exportaciones igual que el markdown: la UI lo
+     * llama UNA vez y pasa el resultado a /export/print.
+     */
+    exportStructured(
+        include: ExportInclude,
+    ): Promise<ExportStructuredResponseDTO> {
+        return request(
+            "/export",
+            jsonInit("POST", { format: "structured", include }),
+        );
     },
 };

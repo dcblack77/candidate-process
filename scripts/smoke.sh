@@ -76,6 +76,15 @@ check "formato markdown" "markdown" "$(echo "$EXPORT" | json .format)"
 check "nota privada EXCLUIDA por defecto" "false" \
     "$(echo "$EXPORT" | node -e 'console.log(JSON.parse(require("fs").readFileSync(0,"utf8")).content.includes("SMOKE-NOTA-PRIVADA"))')"
 
+# Mismo export en formato estructurado: lo que consume la vista de impresión
+# (/export/print) para generar el PDF con el navegador.
+PRINT=$(curl -s -X POST "$API/export" -H 'content-type: application/json' -d '{"format":"structured"}')
+check "formato structured" "structured" "$(echo "$PRINT" | json .format)"
+check "filename .pdf" "true" \
+    "$(echo "$PRINT" | node -e 'console.log(JSON.parse(require("fs").readFileSync(0,"utf8")).filename.endsWith(".pdf"))')"
+check "nota privada EXCLUIDA del JSON" "false" \
+    "$(echo "$PRINT" | node -e 'console.log(require("fs").readFileSync(0,"utf8").includes("SMOKE-NOTA-PRIVADA"))')"
+
 echo "== 9. Cierre y purga =="
 check "close sin confirmación rechazado" "400" \
     "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/process/close" -H 'content-type: application/json' -d '{}')"

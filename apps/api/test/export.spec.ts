@@ -32,12 +32,18 @@ describe("POST /export", () => {
 
     beforeEach(() => {
         resetDb(db);
+        // El contador de exports es un singleton de la app: sin resetearlo,
+        // los casos se comerían entre ellos el límite de 10 por sesión.
+        app.resetExportCounter();
     });
 
     async function createProcess(
         roleTitle = "Backend Sénior Serverless",
+        roleContext?: string,
     ): Promise<string> {
-        const res = await request.post("/process").send({ roleTitle });
+        const res = await request
+            .post("/process")
+            .send(roleContext === undefined ? { roleTitle } : { roleTitle, roleContext });
         expect(res.status).toBe(201);
         return res.body.id as string;
     }
@@ -188,6 +194,7 @@ describe("POST /export", () => {
             expect(JSON.parse(events[0].metadata as string)).toEqual({
                 candidatesIncluded: 1,
                 sensitiveIncluded: false,
+                format: "markdown",
             });
             expect(
                 eventsByAction(db, "export.included_sensitive"),
@@ -338,6 +345,195 @@ describe("POST /export", () => {
         });
     });
 
+    describe("format: 'structured' (datos para la vista de impresión → PDF, §19)", () => {
+        it("devuelve los MISMOS datos que el markdown para el mismo include", async () => {
+            await createProcess(
+                "Backend Sénior Serverless",
+                "Equipo pequeño, mucho AWS.",
+            );
+            await seedScoredCandidate("Ana Ejemplo");
+            await createCandidate("Pendiente Uno");
+
+            const markdown = (await request.post("/export").send({})).body;
+            const res = await request
+                .post("/export")
+                .send({ format: "structured" });
+
+            expect(res.status).toBe(200);
+            const body = res.body;
+            expect(body.format).toBe("structured");
+            expect(body.roleTitle).toBe("Backend Sénior Serverless");
+            expect(body.roleContext).toBe("Equipo pequeño, mucho AWS.");
+            // Pesos desde scoring/weights.ts (única fuente): la UI no los inventa.
+            expect(body.weights.adaptability).toBe(0.3);
+            expect(body.scoreWeights).toEqual({ cv: 0.3, interview: 0.7 });
+            expect(typeof body.generatedAt).toBe("string");
+            expect(body.include).toMatchObject({
+                ranking: true,
+                privateNotes: false,
+            });
+            expect(body.exportsLimit).toBe(MAX_EXPORTS_PER_SESSION);
+
+            // Mismos candidatos, mismo orden y mismos números que el markdown.
+            expect(body.entries).toHaveLength(1);
+            expect(body.unscored).toEqual(["Pendiente Uno"]);
+            const entry = body.entries[0];
+            expect(entry.position).toBe(1);
+            expect(entry.name).toBe("Ana Ejemplo");
+            expect(entry.cvScore).toBe(3.75);
+            expect(entry.overallScore).toBe(3.93);
+            expect(entry.provisional).toBe(false);
+            expect(entry.confidence).toBe(0.8);
+            expect(entry.scores).toEqual({
+                adaptability: 5,
+                fundamentals: 4,
+                depth: 3,
+                production: 3,
+                stack: 2,
+            });
+            expect(entry.verdicts.adaptability).toBe("confirmed");
+            expect(entry.verdicts.depth).toBe("not_demonstrated");
+            // Criterio sin verdict persistido (análisis antiguo).
+            expect(entry.verdicts.stack).toBeNull();
+            expect(entry.interview.overall).toBe(8);
+            expect(entry.questions[0].answerScore).toBe(8);
+            expect(entry.doubts).toEqual(["Validar profundidad."]);
+
+            // Todo el texto que sale en el JSON sale también en el markdown.
+            const content: string = markdown.content;
+            expect(content).toContain(entry.name);
+            expect(content).toContain(entry.summary);
+            expect(content).toContain(entry.overallScore.toFixed(2));
+            for (const strength of entry.strengths) {
+                expect(content).toContain(strength);
+            }
+            for (const risk of entry.risks) {
+                expect(content).toContain(risk);
+            }
+            for (const question of entry.questions) {
+                expect(content).toContain(question.question);
+            }
+            for (const name of body.unscored) {
+                expect(content).toContain(name);
+            }
+        });
+
+        it("las notas privadas NO viajan en el JSON por defecto y sí con el flag", async () => {
+            await createProcess();
+            await seedScoredCandidate("Ana Ejemplo");
+
+            const safe = await request
+                .post("/export")
+                .send({ format: "structured" });
+            expect(safe.status).toBe(200);
+            // Centinela sobre el payload COMPLETO: no basta con no pintarlo.
+            const safeJson = JSON.stringify(safe.body);
+            expect(safeJson).not.toContain(SENTINEL_NOTE);
+            expect(safeJson).not.toContain(SENTINEL_ANSWER_NOTE);
+            expect(safe.body.entries[0].manualNotes).toBeNull();
+            expect(safe.body.entries[0].questions[0].answerNotes).toBeNull();
+            // La nota numérica de la respuesta sí sale (no es dato sensible).
+            expect(safe.body.entries[0].questions[0].answerScore).toBe(8);
+
+            const sensitive = await request
+                .post("/export")
+                .send({ format: "structured", include: { privateNotes: true } });
+            expect(sensitive.status).toBe(200);
+            expect(sensitive.body.entries[0].manualNotes).toBe(SENTINEL_NOTE);
+            expect(sensitive.body.entries[0].questions[0].answerNotes).toBe(
+                SENTINEL_ANSWER_NOTE,
+            );
+            expect(sensitive.body.include.privateNotes).toBe(true);
+
+            // Se sigue auditando la inclusión de datos sensibles (§17).
+            const events = eventsByAction(db, "export.included_sensitive");
+            expect(events).toHaveLength(1);
+            expect(JSON.parse(events[0].metadata as string).format).toBe(
+                "structured",
+            );
+        });
+
+        it("el mismo include filtra igual en los dos formatos", async () => {
+            await createProcess();
+            await seedScoredCandidate("Ana Ejemplo");
+
+            const include = {
+                questions: false,
+                strengths: false,
+                scoresByCriterion: false,
+            };
+            const markdown = (await request.post("/export").send({ include }))
+                .body;
+            const structured = (
+                await request
+                    .post("/export")
+                    .send({ format: "structured", include })
+            ).body;
+
+            expect(markdown.content).not.toContain("PREGUNTA-RECOMENDADA");
+            expect(markdown.content).not.toContain("FORTALEZA-EXPLICITA");
+            const entry = structured.entries[0];
+            expect(entry.questions).toEqual([]);
+            expect(entry.strengths).toEqual([]);
+            expect(entry.scores).toBeNull();
+            expect(entry.verdicts).toBeNull();
+            // Lo no desactivado sigue en ambos.
+            expect(markdown.content).toContain("RIESGO: poca operación");
+            expect(entry.risks[0]).toContain("RIESGO: poca operación");
+        });
+
+        it("el filename lleva extensión .pdf en structured y .md en markdown", async () => {
+            await createProcess();
+
+            const markdown = await request.post("/export").send({});
+            expect(markdown.body.filename).toBe(
+                `export-backend-senior-serverless-${today()}.md`,
+            );
+
+            const structured = await request
+                .post("/export")
+                .send({ format: "structured" });
+            expect(structured.body.filename).toBe(
+                `export-backend-senior-serverless-${today()}.pdf`,
+            );
+        });
+
+        it("audita export.generated con el formato usado", async () => {
+            await createProcess();
+            await request.post("/export").send({ format: "structured" });
+
+            const events = eventsByAction(db, "export.generated");
+            expect(events).toHaveLength(1);
+            expect(JSON.parse(events[0].metadata as string)).toEqual({
+                candidatesIncluded: 0,
+                sensitiveIncluded: false,
+                format: "structured",
+            });
+        });
+
+        it("un format desconocido responde 400 y no consume el contador", async () => {
+            await createProcess();
+
+            const before = await request.post("/export").send({});
+            const used = before.body.exportsUsedThisSession as number;
+
+            const invalid = await request
+                .post("/export")
+                .send({ format: "pdf" });
+            expect(invalid.status).toBe(400);
+            expect(invalid.body.error.code).toBe("INVALID_INPUT");
+
+            const nonString = await request
+                .post("/export")
+                .send({ format: 42 });
+            expect(nonString.status).toBe(400);
+            expect(nonString.body.error.code).toBe("INVALID_INPUT");
+
+            const after = await request.post("/export").send({});
+            expect(after.body.exportsUsedThisSession).toBe(used + 1);
+        });
+    });
+
     describe("validación y errores", () => {
         it("include con clave desconocida o valor no booleano responde 400 y no consume el contador", async () => {
             await createProcess();
@@ -381,8 +577,11 @@ describe("POST /export — límite por sesión (§16: 10)", () => {
                 .send({ roleTitle: "Rol Corto" })
                 .expect(201);
 
+            // El contador es compartido: markdown y structured alternados.
             for (let i = 1; i <= MAX_EXPORTS_PER_SESSION; i++) {
-                const res = await app.request.post("/export").send({});
+                const res = await app.request
+                    .post("/export")
+                    .send(i % 2 === 0 ? { format: "structured" } : {});
                 expect(res.status).toBe(200);
                 expect(res.body.exportsUsedThisSession).toBe(i);
             }
@@ -390,6 +589,12 @@ describe("POST /export — límite por sesión (§16: 10)", () => {
             const eleventh = await app.request.post("/export").send({});
             expect(eleventh.status).toBe(422);
             expect(eleventh.body.error.code).toBe("LIMIT_EXCEEDED");
+            // También para la vista de impresión: el límite es del dominio.
+            const structured = await app.request
+                .post("/export")
+                .send({ format: "structured" });
+            expect(structured.status).toBe(422);
+            expect(structured.body.error.code).toBe("LIMIT_EXCEEDED");
 
             // El límite es por sesión de la API, no por proceso: sigue 422
             // incluso tras recrear el proceso.

@@ -1,9 +1,11 @@
 import { NavLink, Route, Routes } from "react-router-dom";
+import { PrintExportProvider } from "./context/PrintExportContext";
 import { ProcessProvider, useProcess } from "./context/ProcessContext";
 import { CandidateDetailPage } from "./pages/CandidateDetailPage";
 import { CandidatesPage } from "./pages/CandidatesPage";
 import { ClosePage } from "./pages/ClosePage";
 import { ExportPage } from "./pages/ExportPage";
+import { ExportPrintPage } from "./pages/ExportPrintPage";
 import { HomePage } from "./pages/HomePage";
 import { RankingPage } from "./pages/RankingPage";
 
@@ -35,20 +37,31 @@ function Header() {
 export function App() {
     return (
         <ProcessProvider>
-            <Header />
-            <main className="app-main">
-                <Routes>
-                    <Route path="/" element={<HomePage />} />
-                    <Route path="/candidates" element={<CandidatesPage />} />
-                    <Route
-                        path="/candidates/:id"
-                        element={<CandidateDetailPage />}
-                    />
-                    <Route path="/ranking" element={<RankingPage />} />
-                    <Route path="/export" element={<ExportPage />} />
-                    <Route path="/close" element={<ClosePage />} />
-                </Routes>
-            </main>
+            {/* El export estructurado viaja en memoria de /export a
+                /export/print: nunca se persiste en el navegador (§17). */}
+            <PrintExportProvider>
+                <Header />
+                <main className="app-main">
+                    <Routes>
+                        <Route path="/" element={<HomePage />} />
+                        <Route
+                            path="/candidates"
+                            element={<CandidatesPage />}
+                        />
+                        <Route
+                            path="/candidates/:id"
+                            element={<CandidateDetailPage />}
+                        />
+                        <Route path="/ranking" element={<RankingPage />} />
+                        <Route path="/export" element={<ExportPage />} />
+                        <Route
+                            path="/export/print"
+                            element={<ExportPrintPage />}
+                        />
+                        <Route path="/close" element={<ClosePage />} />
+                    </Routes>
+                </main>
+            </PrintExportProvider>
         </ProcessProvider>
     );
 }

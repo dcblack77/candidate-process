@@ -71,6 +71,12 @@ export interface ExportCandidateData {
     /** Evidencias explícitas más fuertes del análisis. */
     strengths: string[];
     risks: string[];
+    /**
+     * Dudas pendientes de validar en entrevista (§13). El markdown no las
+     * escribe (documento "limpio y limitado"); la vista de impresión sí, junto
+     * a los riesgos y bajo la misma bandera `include.risks`.
+     */
+    doubts: string[];
     /** Preguntas recomendadas con la evaluación de su respuesta. */
     questions: ExportQuestionData[];
     /** Agregados de las notas de entrevista (numéricos, no sensibles). */
@@ -267,11 +273,19 @@ function formatInterview(overall: number | null): string {
     return overall === null ? "—" : overall.toFixed(1);
 }
 
+/** Extensiones de archivo del export según el formato pedido (§19). */
+export type ExportFileExtension = "md" | "pdf";
+
 /**
- * Nombre de archivo del export: `export-<slug-del-rol>-<yyyy-mm-dd>.md`.
- * El slug elimina diacríticos y todo lo que no sea alfanumérico.
+ * Nombre de archivo del export: `export-<slug-del-rol>-<yyyy-mm-dd>.<ext>`.
+ * El slug elimina diacríticos y todo lo que no sea alfanumérico. La extensión
+ * es `md` para el markdown y `pdf` para la vista de impresión del navegador.
  */
-export function buildExportFilename(roleTitle: string, date: string): string {
+export function buildExportFilename(
+    roleTitle: string,
+    date: string,
+    extension: ExportFileExtension = "md",
+): string {
     const slug =
         roleTitle
             .normalize("NFD")
@@ -279,5 +293,5 @@ export function buildExportFilename(roleTitle: string, date: string): string {
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-+|-+$/g, "") || "proceso";
-    return `export-${slug}-${date}.md`;
+    return `export-${slug}-${date}.${extension}`;
 }

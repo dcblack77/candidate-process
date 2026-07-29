@@ -16,23 +16,23 @@ import { parseJsonColumn, verdictsOf } from "../scoring/scoring.dto";
 import {
     computeFinalScore,
     CriterionScores,
+    CV_WEIGHT,
+    INTERVIEW_WEIGHT,
     rankEntries,
+    WEIGHTS,
 } from "../scoring/weights";
 import { AuditRepository } from "../shared/audit";
 import { AppError } from "../shared/errors";
 import { MAX_EXPORTS_PER_SESSION } from "../shared/limits";
 import { ExportSessionCounter } from "./export-session";
-import {
-    ExportInclude,
-    ExportResponseDTO,
-    parseExportInput,
-} from "./export.dto";
+import { ExportResponseDTO, parseExportInput } from "./export.dto";
 import {
     buildExportFilename,
     buildExportMarkdown,
     ExportCandidateData,
     ExportQuestionData,
 } from "./markdown-builder";
+import { toExportCandidateDTOs } from "./structured-builder";
 
 /** Máximo de fortalezas (evidencias explícitas) por candidato en el export. */
 const MAX_STRENGTHS = 5;
@@ -45,8 +45,16 @@ const MAX_STRENGTHS = 5;
  * - DECISIÓN documentada: extractedText se acepta como clave pero se ignora
  *   porque el texto extraído no se persiste (§04); si llega a true, el
  *   markdown incluye una nota explicándolo y NO cuenta como dato sensible.
- * - Límite §16: 10 exportaciones por sesión de la API (contador en memoria).
+ * - Límite §16: 10 exportaciones por sesión de la API (contador en memoria),
+ *   compartido por los dos formatos.
  * - La API NO escribe en disco: devuelve contenido y filename y la UI descarga.
+ *
+ * Dos formatos sobre EL MISMO cálculo (`format`, default 'markdown'):
+ * `markdown` devuelve el documento ya escrito y `structured` devuelve los
+ * mismos datos en JSON para la vista de impresión del navegador (§19: el PDF
+ * lo genera el navegador, sin librerías nuevas ni escritura en disco). La
+ * selección de datos y el filtrado por `include` son idénticos: solo cambia
+ * la serialización final.
  */
 @injectable()
 export class ExportUseCase {
@@ -64,7 +72,7 @@ export class ExportUseCase {
     ) {}
 
     execute(body: unknown): ExportResponseDTO {
-        const include = parseExportInput(body);
+        const { include, format } = parseExportInput(body);
         const active = requireActiveProcess(this.processes);
 
         if (this.session.count >= MAX_EXPORTS_PER_SESSION) {
@@ -139,6 +147,7 @@ export class ExportUseCase {
                 summary: entry.summary,
                 strengths: strengthsOf(entry.score, entry.scores),
                 risks: risksOf(entry.score),
+                doubts: doubtsOf(entry.score),
                 verdicts: verdictsOf(parseJsonColumn(entry.score.evidence_summary)),
                 questions: entry.questions,
                 interview: entry.interview,
@@ -146,14 +155,8 @@ export class ExportUseCase {
             }),
         );
 
-        const date = new Date().toISOString().slice(0, 10);
-        const content = buildExportMarkdown({
-            roleTitle: active.role_title,
-            date,
-            include,
-            entries,
-            unscoredNames,
-        });
+        const generatedAt = new Date();
+        const date = generatedAt.toISOString().slice(0, 10);
 
         const exportsUsed = this.session.increment();
         const sensitiveIncluded = include.privateNotes;
@@ -164,20 +167,48 @@ export class ExportUseCase {
                 active.id,
                 {
                     privateNotes: true,
+                    format,
                 },
             );
         }
         this.audit.logEvent("export.generated", "process", active.id, {
             candidatesIncluded: entries.length,
             sensitiveIncluded,
+            format,
         });
+
+        const usage = {
+            exportsUsedThisSession: exportsUsed,
+            exportsLimit: MAX_EXPORTS_PER_SESSION,
+        };
+
+        if (format === "structured") {
+            return {
+                format: "structured",
+                filename: buildExportFilename(active.role_title, date, "pdf"),
+                generatedAt: generatedAt.toISOString(),
+                roleTitle: active.role_title,
+                roleContext: active.role_context,
+                weights: WEIGHTS,
+                scoreWeights: { cv: CV_WEIGHT, interview: INTERVIEW_WEIGHT },
+                entries: toExportCandidateDTOs(entries, include),
+                unscored: unscoredNames,
+                include,
+                ...usage,
+            };
+        }
 
         return {
             format: "markdown",
-            filename: buildExportFilename(active.role_title, date),
-            content,
-            exportsUsedThisSession: exportsUsed,
-            exportsLimit: MAX_EXPORTS_PER_SESSION,
+            filename: buildExportFilename(active.role_title, date, "md"),
+            content: buildExportMarkdown({
+                roleTitle: active.role_title,
+                date,
+                include,
+                entries,
+                unscoredNames,
+            }),
+            ...usage,
         };
     }
 }
@@ -200,6 +231,7 @@ interface StoredEvidenceSummary {
             { evidence?: Array<{ text?: unknown; type?: unknown }> }
         >
     >;
+    doubts?: unknown;
     risks?: unknown;
 }
 
@@ -235,8 +267,16 @@ function strengthsOf(
 }
 
 function risksOf(score: CandidateScoreRow): string[] {
-    const { risks } = storedSummary(score);
-    return Array.isArray(risks)
-        ? risks.filter((risk): risk is string => typeof risk === "string")
+    return stringListOf(storedSummary(score).risks);
+}
+
+/** Dudas pendientes de validar en entrevista (§13), como en el ranking. */
+function doubtsOf(score: CandidateScoreRow): string[] {
+    return stringListOf(storedSummary(score).doubts);
+}
+
+function stringListOf(value: unknown): string[] {
+    return Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === "string")
         : [];
 }

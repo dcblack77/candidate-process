@@ -430,6 +430,248 @@ pre.export-preview {
     white-space: pre-wrap;
 }
 
+/* ── Vista de impresión del export (§19: PDF vía navegador) ──────────────
+   En pantalla se ve como una previsualización de folio (bandeja gris, hoja
+   blanca centrada); al imprimir desaparece todo lo que no es el documento.
+   El PDF lo genera el navegador: aquí no hay ninguna librería de por medio. */
+
+.print-toolbar {
+    margin-bottom: 1rem;
+}
+
+.print-backdrop {
+    background: #6b7280;
+    padding: 1.5rem;
+    border-radius: var(--radius);
+    overflow-x: auto;
+}
+
+/* La "hoja": ancho A4 útil (210mm menos los márgenes de @page). */
+.print-sheet {
+    display: block;
+    width: 178mm;
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 12mm 10mm;
+    background: #fff;
+    color: #111827;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    font-size: 10.5pt;
+    line-height: 1.45;
+}
+
+.print-sheet h1,
+.print-sheet h2,
+.print-sheet h3 {
+    color: #111827;
+    /* Un encabezado nunca debe quedarse solo al final de la página. */
+    break-after: avoid;
+}
+
+.print-sheet h2 {
+    font-size: 1.25rem;
+    margin: 0 0 0.5rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 2px solid #111827;
+}
+
+.print-sheet h3 {
+    font-size: 0.98rem;
+    margin: 0.8rem 0 0.25rem;
+}
+
+.print-sheet ul {
+    margin: 0.25rem 0;
+    padding-left: 1.1rem;
+}
+
+.print-sheet li {
+    margin-bottom: 0.2rem;
+    break-inside: avoid;
+}
+
+/* ── Portada ── */
+
+.print-cover {
+    border-bottom: 3px solid #111827;
+    padding-bottom: 0.9rem;
+    margin-bottom: 1.2rem;
+    break-inside: avoid;
+}
+
+.print-kicker {
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #4b5563;
+}
+
+.print-title {
+    margin: 0.2rem 0 0.4rem;
+    font-size: 1.85rem;
+    line-height: 1.15;
+}
+
+.print-context {
+    margin: 0 0 0.6rem;
+    color: #374151;
+}
+
+.print-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    margin: 0.6rem 0;
+}
+
+.print-meta dt {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #4b5563;
+}
+
+.print-meta dd {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+/* Avisos que DEBEN verse en papel: se fuerza el color de fondo. */
+.print-confidential,
+.print-private-warning {
+    margin: 0.6rem 0 0;
+    padding: 0.5rem 0.7rem;
+    border-left: 4px solid #111827;
+    background: #f3f4f6;
+    font-size: 0.86rem;
+    break-inside: avoid;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+}
+
+.print-private-warning {
+    border-left-color: #8a5a00;
+    background: #fff4d6;
+    font-weight: 600;
+}
+
+/* ── Secciones y fichas ── */
+
+.print-section {
+    margin-bottom: 1.2rem;
+}
+
+.print-block {
+    margin-bottom: 0.7rem;
+    /* Un bloque corto (fortalezas, riesgos…) no se parte entre páginas. */
+    break-inside: avoid;
+}
+
+/* Cada candidato empieza en página nueva: el líder lee una ficha por hoja. */
+.print-candidate {
+    break-before: page;
+}
+
+.print-scoreline {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+}
+
+.print-note {
+    margin: 0.35rem 0;
+    font-size: 0.82rem;
+    color: #4b5563;
+}
+
+.print-answer-score {
+    font-weight: 600;
+}
+
+/* Texto privado: enmarcado para que se distinga de un vistazo. */
+.print-private {
+    border-left: 3px solid #8a5a00;
+    padding-left: 0.6rem;
+    margin-top: 0.25rem;
+    font-size: 0.9rem;
+}
+
+/* ── Tablas del documento ── */
+
+.print-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+    break-inside: avoid;
+}
+
+.print-table th,
+.print-table td {
+    border: 1px solid #9ca3af;
+    padding: 0.3rem 0.45rem;
+    text-align: left;
+    color: #111827;
+    text-transform: none;
+    letter-spacing: normal;
+    font-size: 0.9rem;
+    break-inside: avoid;
+}
+
+.print-table th {
+    background: #eef1f5;
+    font-weight: 700;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+}
+
+.print-table td.print-overall {
+    font-weight: 700;
+}
+
+/* ── Reglas exclusivas de la impresión ── */
+
+@page {
+    size: A4;
+    margin: 18mm 16mm;
+}
+
+@media print {
+    /* Nada de la aplicación: solo el documento. */
+    .app-header,
+    .print-toolbar,
+    .page-title {
+        display: none !important;
+    }
+
+    body {
+        background: #fff;
+    }
+
+    .app-main {
+        max-width: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .print-backdrop {
+        background: transparent;
+        padding: 0;
+        border-radius: 0;
+        overflow: visible;
+    }
+
+    .print-sheet {
+        width: auto;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+    }
+}
+
 /* ── Score inputs ── */
 
 .score-grid {
