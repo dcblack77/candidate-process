@@ -36,11 +36,16 @@ import { RenameCandidateUseCase } from "./rename-candidate.usecase";
 @controller("/candidates")
 export class CandidatesController {
     constructor(
-        @inject(ListCandidatesUseCase) private readonly listCandidates: ListCandidatesUseCase,
-        @inject(CreateCandidateUseCase) private readonly createCandidate: CreateCandidateUseCase,
-        @inject(GetCandidateUseCase) private readonly getCandidate: GetCandidateUseCase,
-        @inject(RenameCandidateUseCase) private readonly renameCandidate: RenameCandidateUseCase,
-        @inject(DeleteCandidateUseCase) private readonly deleteCandidate: DeleteCandidateUseCase,
+        @inject(ListCandidatesUseCase)
+        private readonly listCandidates: ListCandidatesUseCase,
+        @inject(CreateCandidateUseCase)
+        private readonly createCandidate: CreateCandidateUseCase,
+        @inject(GetCandidateUseCase)
+        private readonly getCandidate: GetCandidateUseCase,
+        @inject(RenameCandidateUseCase)
+        private readonly renameCandidate: RenameCandidateUseCase,
+        @inject(DeleteCandidateUseCase)
+        private readonly deleteCandidate: DeleteCandidateUseCase,
     ) {}
 
     @Get("/")
@@ -51,13 +56,19 @@ export class CandidatesController {
 
     @Post("/")
     @Http(201)
-    create(@request() req: Request, @body() payload: unknown): CandidateListItemDTO {
+    create(
+        @request() req: Request,
+        @body() payload: unknown,
+    ): CandidateListItemDTO {
         requirePermission(canCreateCandidate, req.currentUser);
         return this.createCandidate.execute(payload);
     }
 
     @Get("/:id")
-    detail(@request() req: Request, @param("id") id: string): CandidateDetailDTO {
+    detail(
+        @request() req: Request,
+        @param("id") id: string,
+    ): CandidateDetailDTO {
         requirePermission(canCreateCandidate, req.currentUser);
         return this.getCandidate.execute(id);
     }
@@ -75,7 +86,10 @@ export class CandidatesController {
 
     @Delete("/:id")
     @Http(200)
-    remove(@request() req: Request, @param("id") id: string): CandidateDeleteResponseDTO {
+    remove(
+        @request() req: Request,
+        @param("id") id: string,
+    ): CandidateDeleteResponseDTO {
         requirePermission(canDeleteData, req.currentUser);
         return this.deleteCandidate.execute(id);
     }

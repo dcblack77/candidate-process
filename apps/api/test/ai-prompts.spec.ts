@@ -26,14 +26,19 @@ describe("PromptLoader", () => {
             role: "Backend Dev",
         });
 
-        expect(rendered).toContain("Hola Ada, bienvenido al proceso de Backend Dev.");
+        expect(rendered).toContain(
+            "Hola Ada, bienvenido al proceso de Backend Dev.",
+        );
         expect(rendered).toContain("Repetimos el nombre: Ada.");
         expect(rendered).not.toContain("{{");
     });
 
     it("elimina el bloque de documentación (comentario HTML) antes de sustituir", () => {
         const dir = createPromptsDir({ saludo: TEMPLATE });
-        const rendered = makeLoader(dir).render("saludo", { name: "Ada", role: "Dev" });
+        const rendered = makeLoader(dir).render("saludo", {
+            name: "Ada",
+            role: "Dev",
+        });
 
         // La documentación no viaja al modelo y sus {{...}} no duplican valores.
         expect(rendered).not.toContain("Variables:");
@@ -45,12 +50,16 @@ describe("PromptLoader", () => {
         const dir = createPromptsDir({ saludo: TEMPLATE });
         const loader = makeLoader(dir);
 
-        expect(() => loader.render("saludo", { name: "Ada" })).toThrowError(/\{\{role\}\}/);
+        expect(() => loader.render("saludo", { name: "Ada" })).toThrowError(
+            /\{\{role\}\}/,
+        );
     });
 
     it("lanza si el archivo del prompt no existe", () => {
         const dir = createPromptsDir({});
-        expect(() => makeLoader(dir).render("no-existe", {})).toThrowError(/no-existe/);
+        expect(() => makeLoader(dir).render("no-existe", {})).toThrowError(
+            /no-existe/,
+        );
     });
 
     it("ignora variables sobrantes no usadas por la plantilla", () => {
@@ -80,25 +89,41 @@ describe("prompts/ del repo", () => {
     const cases: Array<[string, Record<string, string>]> = [
         [
             "summarize-cv",
-            { cv_text: "CV_TEXTO", role_title: "ROL", role_context: "CONTEXTO" },
+            {
+                cv_text: "CV_TEXTO",
+                role_title: "ROL",
+                role_context: "CONTEXTO",
+            },
         ],
         [
             "score-candidate",
-            { cv_summary_json: "{}", role_title: "ROL", role_context: "CONTEXTO" },
+            {
+                cv_summary_json: "{}",
+                role_title: "ROL",
+                role_context: "CONTEXTO",
+            },
         ],
         [
             "generate-questions",
-            { cv_summary_json: "{}", analysis_json: "{}", role_title: "ROL", count: "8" },
+            {
+                cv_summary_json: "{}",
+                analysis_json: "{}",
+                role_title: "ROL",
+                count: "8",
+            },
         ],
         ["compare-candidates", { candidates_json: "[]", role_title: "ROL" }],
         ["detect-risks-and-gaps", { cv_summary_json: "{}", role_title: "ROL" }],
     ];
 
-    it.each(cases)("%s renderiza sin placeholders pendientes", (name, variables) => {
-        const loader = makeLoader(REPO_PROMPTS);
-        const rendered = loader.render(name, variables);
-        expect(rendered.length).toBeGreaterThan(100);
-        expect(rendered).not.toMatch(/\{\{\s*[a-zA-Z0-9_]+\s*\}\}/);
-        expect(rendered).not.toContain("<!--");
-    });
+    it.each(cases)(
+        "%s renderiza sin placeholders pendientes",
+        (name, variables) => {
+            const loader = makeLoader(REPO_PROMPTS);
+            const rendered = loader.render(name, variables);
+            expect(rendered.length).toBeGreaterThan(100);
+            expect(rendered).not.toMatch(/\{\{\s*[a-zA-Z0-9_]+\s*\}\}/);
+            expect(rendered).not.toContain("<!--");
+        },
+    );
 });

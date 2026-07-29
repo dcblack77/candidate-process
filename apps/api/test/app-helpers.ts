@@ -64,7 +64,11 @@ export function resetDb(db: Database): void {
 export function eventsByAction(
     db: Database,
     action: string,
-): Array<{ entity_type: string | null; entity_id: string | null; metadata: string | null }> {
+): Array<{
+    entity_type: string | null;
+    entity_id: string | null;
+    metadata: string | null;
+}> {
     return db
         .prepare(
             "SELECT entity_type, entity_id, metadata FROM app_event WHERE action = ? ORDER BY created_at",

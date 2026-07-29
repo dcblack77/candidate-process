@@ -35,12 +35,18 @@ function purgeActiveProcess(
 @injectable()
 export class CloseProcessUseCase {
     constructor(
-        @inject(ProcessRepository) private readonly processes: ProcessRepository,
+        @inject(ProcessRepository)
+        private readonly processes: ProcessRepository,
         @inject(AuditRepository) private readonly audit: AuditRepository,
     ) {}
 
     execute(body: unknown): ProcessPurgeResponseDTO {
-        return purgeActiveProcess(this.processes, this.audit, body, "process.closed");
+        return purgeActiveProcess(
+            this.processes,
+            this.audit,
+            body,
+            "process.closed",
+        );
     }
 }
 
@@ -48,11 +54,17 @@ export class CloseProcessUseCase {
 @injectable()
 export class DeleteProcessUseCase {
     constructor(
-        @inject(ProcessRepository) private readonly processes: ProcessRepository,
+        @inject(ProcessRepository)
+        private readonly processes: ProcessRepository,
         @inject(AuditRepository) private readonly audit: AuditRepository,
     ) {}
 
     execute(body: unknown): ProcessPurgeResponseDTO {
-        return purgeActiveProcess(this.processes, this.audit, body, "process.deleted");
+        return purgeActiveProcess(
+            this.processes,
+            this.audit,
+            body,
+            "process.deleted",
+        );
     }
 }

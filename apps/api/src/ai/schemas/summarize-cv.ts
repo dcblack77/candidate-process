@@ -35,7 +35,10 @@ export const SUMMARIZE_CV_JSON_SCHEMA = {
         "risks",
     ],
     properties: {
-        professional_summary: { type: "string", maxLength: MAX_PROFESSIONAL_SUMMARY_LENGTH },
+        professional_summary: {
+            type: "string",
+            maxLength: MAX_PROFESSIONAL_SUMMARY_LENGTH,
+        },
         evidence: {
             type: "object",
             additionalProperties: false,
@@ -54,7 +57,9 @@ export const SUMMARIZE_CV_JSON_SCHEMA = {
     },
 } as const;
 
-const evidenceArrayZodSchema = z.array(evidenceItemZodSchema).max(MAX_EVIDENCE_ITEMS);
+const evidenceArrayZodSchema = z
+    .array(evidenceItemZodSchema)
+    .max(MAX_EVIDENCE_ITEMS);
 
 /** Schema zod espejo de {@link SUMMARIZE_CV_JSON_SCHEMA}. */
 export const summarizeCvZodSchema = z

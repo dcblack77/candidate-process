@@ -6,7 +6,8 @@ import { ProcessRepository, requireActiveProcess } from "./process.repository";
 @injectable()
 export class GetProcessUseCase {
     constructor(
-        @inject(ProcessRepository) private readonly processes: ProcessRepository,
+        @inject(ProcessRepository)
+        private readonly processes: ProcessRepository,
     ) {}
 
     execute(): ProcessResponseDTO {

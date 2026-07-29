@@ -1,5 +1,8 @@
 import { inject, injectable } from "@expressots/core";
-import { ProcessRepository, requireActiveProcess } from "../process/process.repository";
+import {
+    ProcessRepository,
+    requireActiveProcess,
+} from "../process/process.repository";
 import { AuditRepository } from "../shared/audit";
 import { AppError } from "../shared/errors";
 import { assertValidId } from "../shared/ids";
@@ -14,8 +17,10 @@ import { CandidateRepository } from "./candidate.repository";
 @injectable()
 export class RenameCandidateUseCase {
     constructor(
-        @inject(ProcessRepository) private readonly processes: ProcessRepository,
-        @inject(CandidateRepository) private readonly candidates: CandidateRepository,
+        @inject(ProcessRepository)
+        private readonly processes: ProcessRepository,
+        @inject(CandidateRepository)
+        private readonly candidates: CandidateRepository,
         @inject(AuditRepository) private readonly audit: AuditRepository,
     ) {}
 

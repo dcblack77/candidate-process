@@ -18,7 +18,8 @@ import { ProcessRepository } from "./process.repository";
 @injectable()
 export class CreateProcessUseCase {
     constructor(
-        @inject(ProcessRepository) private readonly processes: ProcessRepository,
+        @inject(ProcessRepository)
+        private readonly processes: ProcessRepository,
         @inject(AuditRepository) private readonly audit: AuditRepository,
     ) {}
 

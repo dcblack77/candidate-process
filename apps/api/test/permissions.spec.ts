@@ -45,7 +45,9 @@ describe("permissions (BLUEPRINT §09)", () => {
     });
 
     it("requirePermission no lanza cuando el permiso se cumple", () => {
-        expect(() => requirePermission(canCreateProcess, LOCAL_ADMIN)).not.toThrow();
+        expect(() =>
+            requirePermission(canCreateProcess, LOCAL_ADMIN),
+        ).not.toThrow();
     });
 
     it("requirePermission lanza AppError FORBIDDEN (403) cuando falla", () => {

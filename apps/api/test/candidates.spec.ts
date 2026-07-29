@@ -28,7 +28,9 @@ describe("Candidates API", () => {
     });
 
     async function createProcess(): Promise<string> {
-        const res = await app.request.post("/process").send({ roleTitle: "Backend" });
+        const res = await app.request
+            .post("/process")
+            .send({ roleTitle: "Backend" });
         expect(res.status).toBe(201);
         return res.body.id as string;
     }
@@ -41,7 +43,9 @@ describe("Candidates API", () => {
 
     describe("sin proceso activo", () => {
         it("POST /candidates devuelve 404 NOT_FOUND", async () => {
-            const res = await app.request.post("/candidates").send({ name: "Alguien" });
+            const res = await app.request
+                .post("/candidates")
+                .send({ name: "Alguien" });
             expect(res.status).toBe(404);
             expect(res.body.error.code).toBe("NOT_FOUND");
             expect(countRows(app.db, "candidate")).toBe(0);
@@ -57,7 +61,9 @@ describe("Candidates API", () => {
     describe("POST /candidates", () => {
         it("crea el candidato en el proceso activo y lo audita", async () => {
             const processId = await createProcess();
-            const res = await app.request.post("/candidates").send({ name: "Grace Hopper" });
+            const res = await app.request
+                .post("/candidates")
+                .send({ name: "Grace Hopper" });
             expect(res.status).toBe(201);
             expect(res.body).toMatchObject({
                 name: "Grace Hopper",
@@ -77,7 +83,12 @@ describe("Candidates API", () => {
 
         it("rechaza name vacío o no string con INVALID_INPUT", async () => {
             await createProcess();
-            for (const body of [{}, { name: "" }, { name: "   " }, { name: 42 }]) {
+            for (const body of [
+                {},
+                { name: "" },
+                { name: "   " },
+                { name: 42 },
+            ]) {
                 const res = await app.request.post("/candidates").send(body);
                 expect(res.status).toBe(400);
                 expect(res.body.error.code).toBe("INVALID_INPUT");
@@ -97,16 +108,22 @@ describe("Candidates API", () => {
             });
             fill();
 
-            const res = await app.request.post("/candidates").send({ name: "Uno más" });
+            const res = await app.request
+                .post("/candidates")
+                .send({ name: "Uno más" });
             expect(res.status).toBe(422);
             expect(res.body.error.code).toBe("LIMIT_EXCEEDED");
 
             // Los soft-deleted no cuentan para el límite.
             const anyId = (
-                app.db.prepare("SELECT id FROM candidate LIMIT 1").get() as { id: string }
+                app.db.prepare("SELECT id FROM candidate LIMIT 1").get() as {
+                    id: string;
+                }
             ).id;
             await app.request.delete(`/candidates/${anyId}`);
-            const retry = await app.request.post("/candidates").send({ name: "Uno más" });
+            const retry = await app.request
+                .post("/candidates")
+                .send({ name: "Uno más" });
             expect(retry.status).toBe(201);
         });
     });
@@ -154,7 +171,9 @@ describe("Candidates API", () => {
                 .run(oldProcessId);
             const strayId = newId();
             app.db
-                .prepare("INSERT INTO candidate (id, process_id, name) VALUES (?, ?, 'Ajeno')")
+                .prepare(
+                    "INSERT INTO candidate (id, process_id, name) VALUES (?, ?, 'Ajeno')",
+                )
                 .run(strayId, oldProcessId);
 
             await createProcess();
@@ -171,7 +190,9 @@ describe("Candidates API", () => {
                 )
                 .run(
                     JSON.stringify({ professional_summary: "Resumen" }),
-                    JSON.stringify({ adaptability: [{ text: "Evidencia", type: "explicit" }] }),
+                    JSON.stringify({
+                        adaptability: [{ text: "Evidencia", type: "explicit" }],
+                    }),
                     id,
                 );
 
@@ -183,7 +204,9 @@ describe("Candidates API", () => {
                 name: "Ada Lovelace",
                 analysisStatus: "summarized",
                 cvSummary: { professional_summary: "Resumen" },
-                cvEvidence: { adaptability: [{ text: "Evidencia", type: "explicit" }] },
+                cvEvidence: {
+                    adaptability: [{ text: "Evidencia", type: "explicit" }],
+                },
             });
             expect(typeof res.body.updatedAt).toBe("string");
         });
@@ -204,7 +227,9 @@ describe("Candidates API", () => {
             const id = await createCandidate("Nombre Original");
             // Forzamos un updated_at antiguo para comprobar el refresco.
             app.db
-                .prepare("UPDATE candidate SET updated_at = '2020-01-01T00:00:00.000Z' WHERE id = ?")
+                .prepare(
+                    "UPDATE candidate SET updated_at = '2020-01-01T00:00:00.000Z' WHERE id = ?",
+                )
                 .run(id);
 
             const res = await app.request
@@ -229,9 +254,13 @@ describe("Candidates API", () => {
         it("rechaza id malformado y name inválido", async () => {
             await createProcess();
             const id = await createCandidate();
-            const badId = await app.request.patch("/candidates/nope").send({ name: "X" });
+            const badId = await app.request
+                .patch("/candidates/nope")
+                .send({ name: "X" });
             expect(badId.status).toBe(400);
-            const badName = await app.request.patch(`/candidates/${id}`).send({ name: "" });
+            const badName = await app.request
+                .patch(`/candidates/${id}`)
+                .send({ name: "" });
             expect(badName.status).toBe(400);
         });
     });

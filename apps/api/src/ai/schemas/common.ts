@@ -15,7 +15,13 @@ import { z } from "zod";
  */
 
 /** Los cinco criterios de la rúbrica (§06). Mismos nombres que en DB. */
-export const CRITERIA = ["adaptability", "fundamentals", "depth", "production", "stack"] as const;
+export const CRITERIA = [
+    "adaptability",
+    "fundamentals",
+    "depth",
+    "production",
+    "stack",
+] as const;
 
 export type Criterion = (typeof CRITERIA)[number];
 

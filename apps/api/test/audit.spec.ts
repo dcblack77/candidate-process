@@ -40,7 +40,9 @@ describe("AuditRepository (app_event, sobre :memory:)", () => {
         const audit = new AuditRepository(db);
         const cvText = "a".repeat(500);
         expect(() =>
-            audit.logEvent("cv.extracted", "candidate", "c1", { resumen: cvText }),
+            audit.logEvent("cv.extracted", "candidate", "c1", {
+                resumen: cvText,
+            }),
         ).toThrow(AppError);
     });
 

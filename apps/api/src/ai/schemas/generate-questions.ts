@@ -62,7 +62,10 @@ const questionJsonSchema = {
             maxItems: MAX_SIGNALS,
             items: { type: "string", maxLength: MAX_SIGNAL_LENGTH },
         },
-        scoring_guidance: { type: "string", maxLength: MAX_SCORING_GUIDANCE_LENGTH },
+        scoring_guidance: {
+            type: "string",
+            maxLength: MAX_SCORING_GUIDANCE_LENGTH,
+        },
     },
 } as const;
 
@@ -81,7 +84,10 @@ export const GENERATE_QUESTIONS_JSON_SCHEMA = {
     },
 } as const;
 
-const signalsZodSchema = z.array(z.string().max(MAX_SIGNAL_LENGTH)).min(1).max(MAX_SIGNALS);
+const signalsZodSchema = z
+    .array(z.string().max(MAX_SIGNAL_LENGTH))
+    .min(1)
+    .max(MAX_SIGNALS);
 
 const questionZodSchema = z
     .object({
@@ -103,5 +109,7 @@ export const generateQuestionsZodSchema = z
     })
     .strict();
 
-export type GenerateQuestionsResult = z.infer<typeof generateQuestionsZodSchema>;
+export type GenerateQuestionsResult = z.infer<
+    typeof generateQuestionsZodSchema
+>;
 export type GeneratedQuestion = z.infer<typeof questionZodSchema>;

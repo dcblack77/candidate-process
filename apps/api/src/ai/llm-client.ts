@@ -135,7 +135,13 @@ export class LlmClient {
                 this.log(promptName, attempt, totalAttempts, startedAt, "ok");
                 return result;
             } catch (error) {
-                this.log(promptName, attempt, totalAttempts, startedAt, errorKind(error));
+                this.log(
+                    promptName,
+                    attempt,
+                    totalAttempts,
+                    startedAt,
+                    errorKind(error),
+                );
                 if (attempt < totalAttempts - 1) {
                     await sleep(BACKOFF_BASE_MS * 2 ** attempt);
                 }
@@ -153,31 +159,35 @@ export class LlmClient {
         zodSchema: z.ZodType<T>,
         temperature: number,
     ): Promise<T> {
-        const response = await fetch(`${this.env.LLM_BASE_URL}/v1/chat/completions`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            signal: AbortSignal.timeout(this.env.LLM_TIMEOUT_MS),
-            body: JSON.stringify({
-                model: this.env.LLM_MODEL,
-                messages: [{ role: "user", content: renderedPrompt }],
-                temperature,
-                response_format: {
-                    type: "json_schema",
-                    json_schema: {
-                        name: promptName.replace(/[^a-zA-Z0-9_-]/g, "_"),
-                        schema,
-                        strict: true,
+        const response = await fetch(
+            `${this.env.LLM_BASE_URL}/v1/chat/completions`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                signal: AbortSignal.timeout(this.env.LLM_TIMEOUT_MS),
+                body: JSON.stringify({
+                    model: this.env.LLM_MODEL,
+                    messages: [{ role: "user", content: renderedPrompt }],
+                    temperature,
+                    response_format: {
+                        type: "json_schema",
+                        json_schema: {
+                            name: promptName.replace(/[^a-zA-Z0-9_-]/g, "_"),
+                            schema,
+                            strict: true,
+                        },
                     },
-                },
-            }),
-        });
+                }),
+            },
+        );
 
         if (!response.ok) {
             throw new HttpStatusError(response.status);
         }
 
         const body: unknown = await response.json();
-        const content = chatCompletionResponseSchema.parse(body).choices[0].message.content;
+        const content =
+            chatCompletionResponseSchema.parse(body).choices[0].message.content;
         return zodSchema.parse(JSON.parse(content));
     }
 
@@ -189,7 +199,8 @@ export class LlmClient {
         if (totalAttempts <= 1) {
             return TEMPERATURE_FIRST;
         }
-        const step = (TEMPERATURE_LAST - TEMPERATURE_FIRST) / (totalAttempts - 1);
+        const step =
+            (TEMPERATURE_LAST - TEMPERATURE_FIRST) / (totalAttempts - 1);
         return Math.round((TEMPERATURE_FIRST + step * attempt) * 100) / 100;
     }
 
@@ -233,7 +244,10 @@ function errorKind(error: unknown): string {
     if (error instanceof SyntaxError) {
         return "json_invalid";
     }
-    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+    if (
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.name === "AbortError")
+    ) {
         return "timeout";
     }
     return "network_error";

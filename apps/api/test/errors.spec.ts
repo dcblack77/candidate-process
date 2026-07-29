@@ -58,13 +58,18 @@ describe("error-handler central", () => {
         const body = getBody() as Record<string, unknown>;
         // Estructura exacta: solo la clave "error" con code y message.
         expect(Object.keys(body)).toEqual(["error"]);
-        expect(Object.keys(body.error as object).sort()).toEqual(["code", "message"]);
+        expect(Object.keys(body.error as object).sort()).toEqual([
+            "code",
+            "message",
+        ]);
         expect(body.error).toMatchObject({ code: "NOT_FOUND" });
         expect(JSON.stringify(body)).not.toMatch(/stack/i);
     });
 
     it("un error desconocido responde 500 genérico sin filtrar su mensaje", () => {
-        const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        const consoleSpy = vi
+            .spyOn(console, "error")
+            .mockImplementation(() => undefined);
         const { res, getStatus, getBody } = fakeResponse();
         const leaky = new Error("dato-secreto-del-cv");
 
@@ -77,13 +82,17 @@ describe("error-handler central", () => {
         expect(getBody()).toMatchObject({ error: { code: "INTERNAL_ERROR" } });
 
         // Tampoco el log de consola debe contener el mensaje del error.
-        const logged = consoleSpy.mock.calls.map((args) => args.join(" ")).join("\n");
+        const logged = consoleSpy.mock.calls
+            .map((args) => args.join(" "))
+            .join("\n");
         expect(logged).not.toContain("dato-secreto-del-cv");
         consoleSpy.mockRestore();
     });
 
     it("los valores no-Error también producen 500 genérico", () => {
-        const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        const consoleSpy = vi
+            .spyOn(console, "error")
+            .mockImplementation(() => undefined);
         const { res, getStatus, getBody } = fakeResponse();
 
         errorHandler("cadena suelta", fakeRequest, res, fakeNext);

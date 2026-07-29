@@ -11,7 +11,8 @@ import { ProcessRepository, requireActiveProcess } from "./process.repository";
 @injectable()
 export class UpdateProcessUseCase {
     constructor(
-        @inject(ProcessRepository) private readonly processes: ProcessRepository,
+        @inject(ProcessRepository)
+        private readonly processes: ProcessRepository,
         @inject(AuditRepository) private readonly audit: AuditRepository,
     ) {}
 

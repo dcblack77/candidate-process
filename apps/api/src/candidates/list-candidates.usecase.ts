@@ -1,5 +1,8 @@
 import { inject, injectable } from "@expressots/core";
-import { ProcessRepository, requireActiveProcess } from "../process/process.repository";
+import {
+    ProcessRepository,
+    requireActiveProcess,
+} from "../process/process.repository";
 import { CandidateListItemDTO, toCandidateListItem } from "./candidate.dto";
 import { CandidateRepository } from "./candidate.repository";
 
@@ -10,8 +13,10 @@ import { CandidateRepository } from "./candidate.repository";
 @injectable()
 export class ListCandidatesUseCase {
     constructor(
-        @inject(ProcessRepository) private readonly processes: ProcessRepository,
-        @inject(CandidateRepository) private readonly candidates: CandidateRepository,
+        @inject(ProcessRepository)
+        private readonly processes: ProcessRepository,
+        @inject(CandidateRepository)
+        private readonly candidates: CandidateRepository,
     ) {}
 
     execute(): CandidateListItemDTO[] {

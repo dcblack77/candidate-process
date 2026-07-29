@@ -47,7 +47,9 @@ function isUniqueViolation(error: unknown): boolean {
  * Devuelve el proceso activo o lanza NOT_FOUND. Compartido por los usecases
  * de process y de candidates (los candidatos siempre cuelgan del activo).
  */
-export function requireActiveProcess(repository: ProcessRepository): ProcessRow {
+export function requireActiveProcess(
+    repository: ProcessRepository,
+): ProcessRow {
     const active = repository.findActive();
     if (!active) {
         throw new AppError("NOT_FOUND", "No hay ningún proceso activo.");
@@ -66,9 +68,9 @@ export class ProcessRepository {
     }
 
     findById(id: string): ProcessRow | undefined {
-        return this.db
-            .prepare("SELECT * FROM process WHERE id = ?")
-            .get(id) as ProcessRow | undefined;
+        return this.db.prepare("SELECT * FROM process WHERE id = ?").get(id) as
+            | ProcessRow
+            | undefined;
     }
 
     /**
@@ -126,7 +128,9 @@ export class ProcessRepository {
         return this.db.transaction((): ProcessPurgeCounts => {
             const candidates = (
                 this.db
-                    .prepare("SELECT COUNT(*) AS total FROM candidate WHERE process_id = ?")
+                    .prepare(
+                        "SELECT COUNT(*) AS total FROM candidate WHERE process_id = ?",
+                    )
                     .get(id) as { total: number }
             ).total;
             const scores = (

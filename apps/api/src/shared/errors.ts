@@ -48,7 +48,8 @@ const DEFAULT_MESSAGE_BY_CODE: Record<AppErrorCode, string> = {
     FORBIDDEN: "No tienes permiso para realizar esta acción.",
     ACTIVE_PROCESS_EXISTS: "Ya existe un proceso activo.",
     FILE_TOO_LARGE: "El archivo supera el tamaño máximo permitido.",
-    UNSUPPORTED_MEDIA_TYPE: "El formato de archivo no está permitido (PDF, DOCX o TXT).",
+    UNSUPPORTED_MEDIA_TYPE:
+        "El formato de archivo no está permitido (PDF, DOCX o TXT).",
 };
 
 /**

@@ -64,7 +64,10 @@ export class CandidateRepository {
      * undefined si no existe, está soft-deleted o es de otro proceso:
      * los tres casos son NOT_FOUND para el cliente.
      */
-    findActiveInProcess(id: string, processId: string): CandidateRow | undefined {
+    findActiveInProcess(
+        id: string,
+        processId: string,
+    ): CandidateRow | undefined {
         return this.db
             .prepare(
                 "SELECT * FROM candidate WHERE id = ? AND process_id = ? AND deleted_at IS NULL",
@@ -75,7 +78,9 @@ export class CandidateRepository {
     create(processId: string, name: string): CandidateRow {
         const id = newId();
         this.db
-            .prepare("INSERT INTO candidate (id, process_id, name) VALUES (?, ?, ?)")
+            .prepare(
+                "INSERT INTO candidate (id, process_id, name) VALUES (?, ?, ?)",
+            )
             .run(id, processId, name);
         return this.db
             .prepare("SELECT * FROM candidate WHERE id = ?")
@@ -84,7 +89,9 @@ export class CandidateRepository {
 
     rename(id: string, name: string): CandidateRow {
         this.db
-            .prepare(`UPDATE candidate SET name = ?, updated_at = ${NOW_UTC} WHERE id = ?`)
+            .prepare(
+                `UPDATE candidate SET name = ?, updated_at = ${NOW_UTC} WHERE id = ?`,
+            )
             .run(name, id);
         return this.db
             .prepare("SELECT * FROM candidate WHERE id = ?")
@@ -108,7 +115,11 @@ export class CandidateRepository {
      * el JSON completo devuelto por el modelo y cv_evidence su sub-objeto
      * `evidence`. El texto extraído del CV NUNCA se guarda.
      */
-    saveCvSummary(id: string, cvSummaryJson: string, cvEvidenceJson: string): void {
+    saveCvSummary(
+        id: string,
+        cvSummaryJson: string,
+        cvEvidenceJson: string,
+    ): void {
         this.db
             .prepare(
                 `UPDATE candidate

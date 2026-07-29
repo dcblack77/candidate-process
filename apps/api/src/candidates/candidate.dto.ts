@@ -1,3 +1,5 @@
+import { InterviewQuestionDTO } from "../questions/questions.dto";
+import { CandidateScoreDTO } from "../scoring/scoring.dto";
 import { AppError } from "../shared/errors";
 import { AnalysisStatus, CandidateRow } from "./candidate.repository";
 
@@ -24,6 +26,10 @@ export interface CandidateDetailDTO extends CandidateListItemDTO {
     cvSummary: unknown;
     /** Evidencias por criterio, parseadas desde JSON (null si aún no hay). */
     cvEvidence: unknown;
+    /** Puntuación del candidato (null si aún no fue analizado ni puntuado). */
+    score: CandidateScoreDTO | null;
+    /** Preguntas de entrevista persistidas (vacío si aún no hay). */
+    questions: InterviewQuestionDTO[];
     updatedAt: string;
 }
 
@@ -57,12 +63,18 @@ function parseJsonColumn(value: string | null): unknown {
     }
 }
 
-export function toCandidateDetail(row: CandidateRow): CandidateDetailDTO {
+export function toCandidateDetail(
+    row: CandidateRow,
+    score: CandidateScoreDTO | null = null,
+    questions: InterviewQuestionDTO[] = [],
+): CandidateDetailDTO {
     return {
         ...toCandidateListItem(row),
         processId: row.process_id,
         cvSummary: parseJsonColumn(row.cv_summary),
         cvEvidence: parseJsonColumn(row.cv_evidence),
+        score,
+        questions,
         updatedAt: row.updated_at,
     };
 }
@@ -70,11 +82,17 @@ export function toCandidateDetail(row: CandidateRow): CandidateDetailDTO {
 /** Entrada de POST /candidates y PATCH /candidates/:id: `{ name }`. */
 export function parseCandidateNameInput(body: unknown): { name: string } {
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
-        throw new AppError("INVALID_INPUT", "El cuerpo de la petición no es válido.");
+        throw new AppError(
+            "INVALID_INPUT",
+            "El cuerpo de la petición no es válido.",
+        );
     }
     const { name } = body as Record<string, unknown>;
     if (typeof name !== "string") {
-        throw new AppError("INVALID_INPUT", "name es obligatorio y debe ser texto.");
+        throw new AppError(
+            "INVALID_INPUT",
+            "name es obligatorio y debe ser texto.",
+        );
     }
     const trimmed = name.trim();
     if (trimmed.length === 0) {

@@ -36,8 +36,14 @@ describe("migrador mínimo (sobre :memory:)", () => {
     it("aplica los archivos NNN_*.sql en orden lexicográfico", () => {
         const dir = mkdtempSync(path.join(tmpdir(), "migraciones-"));
         // Se escriben desordenados a propósito.
-        writeFileSync(path.join(dir, "002_second.sql"), "CREATE TABLE b (id TEXT);");
-        writeFileSync(path.join(dir, "001_first.sql"), "CREATE TABLE a (id TEXT);");
+        writeFileSync(
+            path.join(dir, "002_second.sql"),
+            "CREATE TABLE b (id TEXT);",
+        );
+        writeFileSync(
+            path.join(dir, "001_first.sql"),
+            "CREATE TABLE a (id TEXT);",
+        );
         writeFileSync(path.join(dir, "notas.txt"), "esto no es una migración");
 
         const db = createDatabase(":memory:");
@@ -58,7 +64,9 @@ describe("migrador mínimo (sobre :memory:)", () => {
 
         // Ni la tabla creada ni el registro en _migrations deben persistir.
         const tables = db
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ok_table'")
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='ok_table'",
+            )
             .all();
         expect(tables).toHaveLength(0);
         const count = db

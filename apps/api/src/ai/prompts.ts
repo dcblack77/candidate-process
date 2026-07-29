@@ -42,7 +42,9 @@ export class PromptLoader {
             raw = readFileSync(filePath, "utf8");
         } catch {
             // Sin ruta absoluta en el mensaje: el nombre del prompt basta.
-            throw new Error(`Prompt no encontrado: "${name}" (PROMPTS_DIR/${name}.md)`);
+            throw new Error(
+                `Prompt no encontrado: "${name}" (PROMPTS_DIR/${name}.md)`,
+            );
         }
 
         const template = raw.replace(HTML_COMMENT_RE, "").trim();
@@ -59,14 +61,17 @@ export class PromptLoader {
         const template = this.load(name);
 
         const missing = new Set<string>();
-        const rendered = template.replace(PLACEHOLDER_RE, (_match, varName: string) => {
-            const value = variables[varName];
-            if (value === undefined) {
-                missing.add(varName);
-                return "";
-            }
-            return value;
-        });
+        const rendered = template.replace(
+            PLACEHOLDER_RE,
+            (_match, varName: string) => {
+                const value = variables[varName];
+                if (value === undefined) {
+                    missing.add(varName);
+                    return "";
+                }
+                return value;
+            },
+        );
 
         if (missing.size > 0) {
             // Solo nombres de variables: nunca contenido (BLUEPRINT §17).

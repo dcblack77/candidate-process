@@ -16,7 +16,10 @@ import {
     canDeleteData,
     requirePermission,
 } from "../security/permissions";
-import { CloseProcessUseCase, DeleteProcessUseCase } from "./close-process.usecase";
+import {
+    CloseProcessUseCase,
+    DeleteProcessUseCase,
+} from "./close-process.usecase";
 import { CreateProcessUseCase } from "./create-process.usecase";
 import { GetProcessUseCase } from "./get-process.usecase";
 import { ProcessPurgeResponseDTO, ProcessResponseDTO } from "./process.dto";
@@ -33,11 +36,16 @@ import { UpdateProcessUseCase } from "./update-process.usecase";
 @controller("/process")
 export class ProcessController {
     constructor(
-        @inject(GetProcessUseCase) private readonly getProcess: GetProcessUseCase,
-        @inject(CreateProcessUseCase) private readonly createProcess: CreateProcessUseCase,
-        @inject(UpdateProcessUseCase) private readonly updateProcess: UpdateProcessUseCase,
-        @inject(CloseProcessUseCase) private readonly closeProcess: CloseProcessUseCase,
-        @inject(DeleteProcessUseCase) private readonly deleteProcess: DeleteProcessUseCase,
+        @inject(GetProcessUseCase)
+        private readonly getProcess: GetProcessUseCase,
+        @inject(CreateProcessUseCase)
+        private readonly createProcess: CreateProcessUseCase,
+        @inject(UpdateProcessUseCase)
+        private readonly updateProcess: UpdateProcessUseCase,
+        @inject(CloseProcessUseCase)
+        private readonly closeProcess: CloseProcessUseCase,
+        @inject(DeleteProcessUseCase)
+        private readonly deleteProcess: DeleteProcessUseCase,
     ) {}
 
     @Get("/")
@@ -48,28 +56,40 @@ export class ProcessController {
 
     @Post("/")
     @Http(201)
-    create(@request() req: Request, @body() payload: unknown): ProcessResponseDTO {
+    create(
+        @request() req: Request,
+        @body() payload: unknown,
+    ): ProcessResponseDTO {
         requirePermission(canCreateProcess, req.currentUser);
         return this.createProcess.execute(payload);
     }
 
     @Patch("/")
     @Http(200)
-    update(@request() req: Request, @body() payload: unknown): ProcessResponseDTO {
+    update(
+        @request() req: Request,
+        @body() payload: unknown,
+    ): ProcessResponseDTO {
         requirePermission(canCreateProcess, req.currentUser);
         return this.updateProcess.execute(payload);
     }
 
     @Post("/close")
     @Http(200)
-    close(@request() req: Request, @body() payload: unknown): ProcessPurgeResponseDTO {
+    close(
+        @request() req: Request,
+        @body() payload: unknown,
+    ): ProcessPurgeResponseDTO {
         requirePermission(canCloseProcess, req.currentUser);
         return this.closeProcess.execute(payload);
     }
 
     @Delete("/")
     @Http(200)
-    remove(@request() req: Request, @body() payload: unknown): ProcessPurgeResponseDTO {
+    remove(
+        @request() req: Request,
+        @body() payload: unknown,
+    ): ProcessPurgeResponseDTO {
         requirePermission(canDeleteData, req.currentUser);
         return this.deleteProcess.execute(payload);
     }

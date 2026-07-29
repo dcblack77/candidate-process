@@ -26,10 +26,7 @@ export function errorHandler(
 
     // Error no controlado: log mínimo sin mensaje (solo tipo y frames).
     if (err instanceof Error) {
-        const frames = (err.stack ?? "")
-            .split("\n")
-            .slice(1)
-            .join("\n");
+        const frames = (err.stack ?? "").split("\n").slice(1).join("\n");
         console.error(`[api] error no controlado (${err.name})\n${frames}`);
     } else {
         console.error("[api] error no controlado de tipo desconocido");

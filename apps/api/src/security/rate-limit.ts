@@ -18,10 +18,16 @@ export class RateLimiter {
      * Registra un uso de `key` o lanza RATE_LIMITED si se alcanzó `limit`
      * dentro de la ventana (por defecto, una hora).
      */
-    check(key: string, limit: number, windowMs: number = RATE_LIMIT_WINDOW_MS): void {
+    check(
+        key: string,
+        limit: number,
+        windowMs: number = RATE_LIMIT_WINDOW_MS,
+    ): void {
         const now = Date.now();
         const cutoff = now - windowMs;
-        const recent = (this.hitsByKey.get(key) ?? []).filter((t) => t > cutoff);
+        const recent = (this.hitsByKey.get(key) ?? []).filter(
+            (t) => t > cutoff,
+        );
 
         if (recent.length >= limit) {
             this.hitsByKey.set(key, recent);

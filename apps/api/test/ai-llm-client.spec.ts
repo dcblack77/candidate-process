@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { estimateTokens, LlmClient, OUTPUT_MARGIN_TOKENS } from "../src/ai/llm-client";
+import {
+    estimateTokens,
+    LlmClient,
+    OUTPUT_MARGIN_TOKENS,
+} from "../src/ai/llm-client";
 import { PromptLoader } from "../src/ai/prompts";
 import { AppError } from "../src/shared/errors";
 import {
@@ -37,7 +41,10 @@ async function startMock(responder: Responder): Promise<MockLlm> {
     return mock;
 }
 
-function makeClient(server: MockLlm, envOverrides: Record<string, unknown> = {}): LlmClient {
+function makeClient(
+    server: MockLlm,
+    envOverrides: Record<string, unknown> = {},
+): LlmClient {
     const env = makeAiEnv({
         PROMPTS_DIR: promptsDir,
         LLM_BASE_URL: server.url,
@@ -46,7 +53,10 @@ function makeClient(server: MockLlm, envOverrides: Record<string, unknown> = {})
     return new LlmClient(env, new PromptLoader(env));
 }
 
-function completeTopic(client: LlmClient, topic = "grafos"): Promise<{ answer: string }> {
+function completeTopic(
+    client: LlmClient,
+    topic = "grafos",
+): Promise<{ answer: string }> {
     return client.complete({
         promptName: "test-prompt",
         variables: { topic },
@@ -80,13 +90,19 @@ describe("LlmClient.complete", () => {
         expect(body.response_format.type).toBe("json_schema");
         expect(body.response_format.json_schema.strict).toBe(true);
         expect(body.response_format.json_schema.name).toBe("test-prompt");
-        expect(body.response_format.json_schema.schema).toEqual(ANSWER_JSON_SCHEMA);
+        expect(body.response_format.json_schema.schema).toEqual(
+            ANSWER_JSON_SCHEMA,
+        );
     });
 
     it("JSON que viola el schema zod → reintenta con temperatura creciente y triunfa a la 2ª", async () => {
-        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const warnSpy = vi
+            .spyOn(console, "warn")
+            .mockImplementation(() => undefined);
         const server = await startMock((_request, index) =>
-            index === 0 ? chatCompletion({ wrong_field: true }) : chatCompletion({ answer: "ok" }),
+            index === 0
+                ? chatCompletion({ wrong_field: true })
+                : chatCompletion({ answer: "ok" }),
         );
         // 3 intentos máximos (1 + 2 reintentos): temperaturas 0.2 → 0.3 → 0.4.
         const client = makeClient(server, { LLM_MAX_RETRIES: 2 });
@@ -109,20 +125,29 @@ describe("LlmClient.complete", () => {
 
     it("content que no es JSON parseable → reintenta y triunfa con la siguiente válida", async () => {
         const server = await startMock((_request, index) =>
-            index === 0 ? chatCompletion("esto no es JSON {") : chatCompletion({ answer: "bien" }),
+            index === 0
+                ? chatCompletion("esto no es JSON {")
+                : chatCompletion({ answer: "bien" }),
         );
         const client = makeClient(server, { LLM_MAX_RETRIES: 1 });
 
-        await expect(completeTopic(client)).resolves.toEqual({ answer: "bien" });
+        await expect(completeTopic(client)).resolves.toEqual({
+            answer: "bien",
+        });
         expect(server.requests).toHaveLength(2);
     });
 
     it("500 persistente → AppError LLM_UNAVAILABLE tras agotar LLM_MAX_RETRIES", async () => {
         vi.spyOn(console, "warn").mockImplementation(() => undefined);
-        const server = await startMock(() => ({ status: 500, body: { error: "boom" } }));
+        const server = await startMock(() => ({
+            status: 500,
+            body: { error: "boom" },
+        }));
         const client = makeClient(server, { LLM_MAX_RETRIES: 2 });
 
-        const failure = await completeTopic(client).catch((error: unknown) => error);
+        const failure = await completeTopic(client).catch(
+            (error: unknown) => error,
+        );
 
         expect(failure).toBeInstanceOf(AppError);
         expect((failure as AppError).code).toBe("LLM_UNAVAILABLE");
@@ -137,9 +162,14 @@ describe("LlmClient.complete", () => {
             await new Promise((resolve) => setTimeout(resolve, 1_000));
             return chatCompletion({ answer: "tarde" });
         });
-        const client = makeClient(server, { LLM_TIMEOUT_MS: 100, LLM_MAX_RETRIES: 1 });
+        const client = makeClient(server, {
+            LLM_TIMEOUT_MS: 100,
+            LLM_MAX_RETRIES: 1,
+        });
 
-        const failure = await completeTopic(client).catch((error: unknown) => error);
+        const failure = await completeTopic(client).catch(
+            (error: unknown) => error,
+        );
 
         expect(failure).toBeInstanceOf(AppError);
         expect((failure as AppError).code).toBe("LLM_UNAVAILABLE");
@@ -149,7 +179,11 @@ describe("LlmClient.complete", () => {
     it("concurrencia 1: dos complete() simultáneos llegan al mock secuencialmente", async () => {
         const server = await startMock(async (request) => {
             await new Promise((resolve) => setTimeout(resolve, 100));
-            return chatCompletion({ answer: request.body.messages[0].content.includes("uno") ? "1" : "2" });
+            return chatCompletion({
+                answer: request.body.messages[0].content.includes("uno")
+                    ? "1"
+                    : "2",
+            });
         });
         const client = makeClient(server);
 
@@ -163,29 +197,41 @@ describe("LlmClient.complete", () => {
         expect(server.requests).toHaveLength(2);
         expect(server.maxConcurrent).toBe(1);
         // El segundo request no salió hasta terminar el primero (≥100ms después).
-        expect(server.requests[1].receivedAt - server.requests[0].receivedAt).toBeGreaterThanOrEqual(90);
+        expect(
+            server.requests[1].receivedAt - server.requests[0].receivedAt,
+        ).toBeGreaterThanOrEqual(90);
     });
 
     it("la cola sobrevive a errores: tras un fallo, la siguiente llamada funciona", async () => {
         vi.spyOn(console, "warn").mockImplementation(() => undefined);
         const server = await startMock((_request, index) =>
-            index === 0 ? { status: 500 } : chatCompletion({ answer: "recuperado" }),
+            index === 0
+                ? { status: 500 }
+                : chatCompletion({ answer: "recuperado" }),
         );
         const client = makeClient(server, { LLM_MAX_RETRIES: 0 });
 
         await expect(completeTopic(client)).rejects.toBeInstanceOf(AppError);
-        await expect(completeTopic(client)).resolves.toEqual({ answer: "recuperado" });
+        await expect(completeTopic(client)).resolves.toEqual({
+            answer: "recuperado",
+        });
     });
 
     it("prompt que excede el presupuesto de contexto → INVALID_INPUT sin tocar la red", async () => {
-        const server = await startMock(() => chatCompletion({ answer: "no debería llegar" }));
+        const server = await startMock(() =>
+            chatCompletion({ answer: "no debería llegar" }),
+        );
         // Presupuesto de entrada: 2100 - 2000 = 100 tokens (~360 chars).
-        const client = makeClient(server, { LLM_CONTEXT_TOKENS: OUTPUT_MARGIN_TOKENS + 100 });
+        const client = makeClient(server, {
+            LLM_CONTEXT_TOKENS: OUTPUT_MARGIN_TOKENS + 100,
+        });
 
         const hugeTopic = "z".repeat(2_000);
         expect(estimateTokens(hugeTopic)).toBeGreaterThan(100);
 
-        const failure = await completeTopic(client, hugeTopic).catch((error: unknown) => error);
+        const failure = await completeTopic(client, hugeTopic).catch(
+            (error: unknown) => error,
+        );
 
         expect(failure).toBeInstanceOf(AppError);
         expect((failure as AppError).code).toBe("INVALID_INPUT");

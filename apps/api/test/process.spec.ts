@@ -67,7 +67,12 @@ describe("Process API", () => {
         });
 
         it("rechaza roleTitle vacío o ausente con INVALID_INPUT", async () => {
-            for (const body of [{}, { roleTitle: "" }, { roleTitle: "   " }, { roleTitle: 7 }]) {
+            for (const body of [
+                {},
+                { roleTitle: "" },
+                { roleTitle: "   " },
+                { roleTitle: 7 },
+            ]) {
                 const res = await app.request.post("/process").send(body);
                 expect(res.status).toBe(400);
                 expect(res.body.error.code).toBe("INVALID_INPUT");
@@ -77,7 +82,9 @@ describe("Process API", () => {
 
         it("devuelve 409 ACTIVE_PROCESS_EXISTS si ya hay un proceso activo", async () => {
             await createProcess();
-            const res = await app.request.post("/process").send({ roleTitle: "Otro rol" });
+            const res = await app.request
+                .post("/process")
+                .send({ roleTitle: "Otro rol" });
             expect(res.status).toBe(409);
             expect(res.body.error.code).toBe("ACTIVE_PROCESS_EXISTS");
             expect(countRows(app.db, "process")).toBe(1);
@@ -89,7 +96,9 @@ describe("Process API", () => {
                 .run(newId(), "Rol A");
             expect(() =>
                 app.db
-                    .prepare("INSERT INTO process (id, role_title) VALUES (?, ?)")
+                    .prepare(
+                        "INSERT INTO process (id, role_title) VALUES (?, ?)",
+                    )
                     .run(newId(), "Rol B"),
             ).toThrow(/UNIQUE/);
         });
@@ -121,7 +130,9 @@ describe("Process API", () => {
         });
 
         it("devuelve 404 si no hay proceso activo", async () => {
-            const res = await app.request.patch("/process").send({ roleTitle: "X" });
+            const res = await app.request
+                .patch("/process")
+                .send({ roleTitle: "X" });
             expect(res.status).toBe(404);
             expect(res.body.error.code).toBe("NOT_FOUND");
         });
@@ -155,8 +166,15 @@ describe("Process API", () => {
 
         it("close sin confirmDelete devuelve 400 y no borra nada", async () => {
             await seedFullProcess();
-            for (const payload of [{}, { confirmDelete: false }, { confirmDelete: "true" }, { confirmDelete: 1 }]) {
-                const res = await app.request.post("/process/close").send(payload);
+            for (const payload of [
+                {},
+                { confirmDelete: false },
+                { confirmDelete: "true" },
+                { confirmDelete: 1 },
+            ]) {
+                const res = await app.request
+                    .post("/process/close")
+                    .send(payload);
                 expect(res.status).toBe(400);
                 expect(res.body.error.code).toBe("INVALID_INPUT");
             }
@@ -214,7 +232,9 @@ describe("Process API", () => {
             expect(noConfirm.status).toBe(400);
             expect(noConfirm.body.error.code).toBe("INVALID_INPUT");
 
-            const res = await app.request.delete("/process").send({ confirmDelete: true });
+            const res = await app.request
+                .delete("/process")
+                .send({ confirmDelete: true });
             expect(res.status).toBe(200);
             expect(res.body.deleted).toBe(true);
             expect(countRows(app.db, "process")).toBe(0);

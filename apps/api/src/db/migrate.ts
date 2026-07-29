@@ -54,7 +54,9 @@ export function runMigrations(
         .filter((file) => !alreadyApplied.has(file));
 
     const applied: string[] = [];
-    const insertMigration = db.prepare("INSERT INTO _migrations (name) VALUES (?)");
+    const insertMigration = db.prepare(
+        "INSERT INTO _migrations (name) VALUES (?)",
+    );
 
     for (const file of pending) {
         const sql = readFileSync(path.join(migrationsDir, file), "utf8");

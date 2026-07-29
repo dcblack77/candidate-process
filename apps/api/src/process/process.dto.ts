@@ -1,5 +1,9 @@
 import { AppError } from "../shared/errors";
-import { ProcessRow, ProcessPurgeCounts, ProcessUpdate } from "./process.repository";
+import {
+    ProcessRow,
+    ProcessPurgeCounts,
+    ProcessUpdate,
+} from "./process.repository";
 
 /**
  * DTOs y validación de entrada del dominio Process.
@@ -41,7 +45,10 @@ export function toProcessResponse(row: ProcessRow): ProcessResponseDTO {
 
 function asRecord(body: unknown): Record<string, unknown> {
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
-        throw new AppError("INVALID_INPUT", "El cuerpo de la petición no es válido.");
+        throw new AppError(
+            "INVALID_INPUT",
+            "El cuerpo de la petición no es válido.",
+        );
     }
     return body as Record<string, unknown>;
 }
@@ -49,7 +56,10 @@ function asRecord(body: unknown): Record<string, unknown> {
 /** Valida y normaliza `roleTitle`: string no vacío (tras trim) y acotado. */
 function parseRoleTitle(value: unknown): string {
     if (typeof value !== "string") {
-        throw new AppError("INVALID_INPUT", "roleTitle es obligatorio y debe ser texto.");
+        throw new AppError(
+            "INVALID_INPUT",
+            "roleTitle es obligatorio y debe ser texto.",
+        );
     }
     const trimmed = value.trim();
     if (trimmed.length === 0) {

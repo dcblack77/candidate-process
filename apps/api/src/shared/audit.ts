@@ -21,14 +21,20 @@ function assertSafeMetadata(metadata: AuditMetadata): void {
     for (const [key, value] of Object.entries(metadata)) {
         const type = typeof value;
         const isPrimitive =
-            value === null || type === "string" || type === "number" || type === "boolean";
+            value === null ||
+            type === "string" ||
+            type === "number" ||
+            type === "boolean";
         if (!isPrimitive) {
             throw new AppError(
                 "INVALID_INPUT",
                 `La metadata de auditoría solo admite valores primitivos (clave: ${key}).`,
             );
         }
-        if (type === "string" && (value as string).length > MAX_METADATA_STRING_LENGTH) {
+        if (
+            type === "string" &&
+            (value as string).length > MAX_METADATA_STRING_LENGTH
+        ) {
             throw new AppError(
                 "INVALID_INPUT",
                 `La metadata de auditoría no admite textos largos (clave: ${key}).`,
@@ -86,6 +92,19 @@ export class AuditRepository {
         const row = this.db
             .prepare("SELECT COUNT(*) AS total FROM app_event WHERE action = ?")
             .get(action) as { total: number };
+        return row.total;
+    }
+
+    /**
+     * Conteo de eventos de una acción para una entidad concreta (p. ej.
+     * regeneraciones de análisis de un candidato, BLUEPRINT §16).
+     */
+    countByActionAndEntity(action: string, entityId: string): number {
+        const row = this.db
+            .prepare(
+                "SELECT COUNT(*) AS total FROM app_event WHERE action = ? AND entity_id = ?",
+            )
+            .get(action, entityId) as { total: number };
         return row.total;
     }
 }

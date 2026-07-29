@@ -7,8 +7,12 @@ import { CoreModule } from "./app.module";
 import { CandidatesModule } from "./candidates/candidates.module";
 import { CvModule } from "./cv/cv.module";
 import { loadEnv } from "./env";
+import { ExportModule } from "./export/export.module";
 import { HealthModule } from "./health/health.module";
 import { ProcessModule } from "./process/process.module";
+import { QuestionsModule } from "./questions/questions.module";
+import { RankingModule } from "./ranking/ranking.module";
+import { ScoringModule } from "./scoring/scoring.module";
 import { currentUserMiddleware } from "./security/current-user.middleware";
 import { errorHandler } from "./shared/error-handler";
 
@@ -41,6 +45,10 @@ export class App extends AppExpress {
             CandidatesModule,
             CvModule,
             AiModule,
+            ScoringModule,
+            QuestionsModule,
+            RankingModule,
+            ExportModule,
         ]);
     }
 
@@ -68,9 +76,16 @@ export class App extends AppExpress {
     protected override async postServerInitialization(): Promise<void> {
         const server = await this.getHttpServer();
         const address = server.address();
-        if (!address || typeof address === "string" || !LOCAL_ADDRESSES.has(address.address)) {
+        if (
+            !address ||
+            typeof address === "string" ||
+            !LOCAL_ADDRESSES.has(address.address)
+        ) {
             server.close();
-            const bound = typeof address === "object" && address ? address.address : String(address);
+            const bound =
+                typeof address === "object" && address
+                    ? address.address
+                    : String(address);
             throw new Error(
                 `La API quedó escuchando en "${bound}" en lugar de localhost. ` +
                     "Se aborta el arranque (BLUEPRINT §10: la API solo escucha en localhost).",
@@ -109,8 +124,10 @@ export class App extends AppExpress {
                 host: string,
                 callback?: () => void,
             ) => HttpServer;
-            const listenOnLocalhost = (port: number, callback?: () => void): HttpServer =>
-                originalListen(port, env.API_HOST, callback);
+            const listenOnLocalhost = (
+                port: number,
+                callback?: () => void,
+            ): HttpServer => originalListen(port, env.API_HOST, callback);
             (app as unknown as { listen: typeof listenOnLocalhost }).listen =
                 listenOnLocalhost;
             marker[patched] = true;

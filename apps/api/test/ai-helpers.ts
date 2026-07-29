@@ -45,7 +45,8 @@ export interface MockLlm {
 
 /** Respuesta 200 de chat/completions cuyo message.content es `content`. */
 export function chatCompletion(content: unknown): MockResponse {
-    const text = typeof content === "string" ? content : JSON.stringify(content);
+    const text =
+        typeof content === "string" ? content : JSON.stringify(content);
     return {
         status: 200,
         body: { choices: [{ message: { content: text } }] },
@@ -73,7 +74,9 @@ export async function startMockLlm(responder: Responder): Promise<MockLlm> {
                 requests.push(request);
                 try {
                     const response = await responder(request, index);
-                    res.writeHead(response.status, { "Content-Type": "application/json" });
+                    res.writeHead(response.status, {
+                        "Content-Type": "application/json",
+                    });
                     res.end(JSON.stringify(response.body ?? {}));
                 } catch {
                     res.writeHead(500);
@@ -85,7 +88,9 @@ export async function startMockLlm(responder: Responder): Promise<MockLlm> {
         });
     });
 
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) =>
+        server.listen(0, "127.0.0.1", resolve),
+    );
     const { port } = server.address() as AddressInfo;
 
     return {

@@ -41,7 +41,9 @@ describe("esquema 001_init (sobre :memory:)", () => {
         it("rechaza estados fuera de active|closed", () => {
             expect(() =>
                 db
-                    .prepare("INSERT INTO process (id, role_title, status) VALUES (?, ?, ?)")
+                    .prepare(
+                        "INSERT INTO process (id, role_title, status) VALUES (?, ?, ?)",
+                    )
                     .run(newId(), "Rol", "paused"),
             ).toThrow(/CHECK/i);
         });

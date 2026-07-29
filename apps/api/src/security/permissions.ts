@@ -32,7 +32,10 @@ export const canDeleteData: PermissionCheck = (user) => isAdmin(user);
  *
  * Uso: `requirePermission(canCreateProcess, req.currentUser);`
  */
-export function requirePermission(check: PermissionCheck, user: CurrentUser): void {
+export function requirePermission(
+    check: PermissionCheck,
+    user: CurrentUser,
+): void {
     if (!check(user)) {
         throw new AppError("FORBIDDEN");
     }
