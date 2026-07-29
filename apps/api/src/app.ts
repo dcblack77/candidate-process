@@ -5,6 +5,7 @@ import { Application as ExpressApplication } from "express";
 import { AiModule } from "./ai/ai.module";
 import { CoreModule } from "./app.module";
 import { CandidatesModule } from "./candidates/candidates.module";
+import { CvModule } from "./cv/cv.module";
 import { loadEnv } from "./env";
 import { HealthModule } from "./health/health.module";
 import { ProcessModule } from "./process/process.module";
@@ -38,6 +39,7 @@ export class App extends AppExpress {
             HealthModule,
             ProcessModule,
             CandidatesModule,
+            CvModule,
             AiModule,
         ]);
     }

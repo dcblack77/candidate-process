@@ -30,6 +30,12 @@
 
         "types": ["node"]
     },
-    "include": ["src/**/*.ts", "test/**/*.ts", "expressots.config.ts", "vitest.config.ts"],
+    "include": [
+        "src/**/*.ts",
+        "test/**/*.ts",
+        "scripts/**/*.ts",
+        "expressots.config.ts",
+        "vitest.config.ts"
+    ],
     "exclude": ["node_modules", "dist"]
 }

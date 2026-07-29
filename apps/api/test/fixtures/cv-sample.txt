@@ -1,0 +1,11 @@
+Ana Ejemplo Ficticia - Ingeniera de Software Backend
+Direccion: Calle Sentinela Privada 742, Villarrobledo (SENTINEL-DATO-PERSONAL-742)
+Edad: 34 anios. Estado civil: casada. Nacionalidad: ficticia.
+
+Experiencia:
+- 2021-2024 Orinoco Ficticia SL: APIs serverless en AWS Lambda con TypeScript.
+- 2018-2021 Datos Inventados SA: migracion de monolito Java a Node.js.
+- Operacion de sistemas en produccion: guardias, debugging y postmortems.
+
+Formacion: Grado en Ingenieria Informatica (universidad inventada).
+Referencia interna del fixture: MARCADOR-TXT-ORINOCO

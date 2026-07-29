@@ -37,6 +37,8 @@ describe("AppError", () => {
             LLM_UNAVAILABLE: 502,
             FORBIDDEN: 403,
             ACTIVE_PROCESS_EXISTS: 409,
+            FILE_TOO_LARGE: 413,
+            UNSUPPORTED_MEDIA_TYPE: 415,
         };
         for (const code of APP_ERROR_CODES) {
             const error = new AppError(code);

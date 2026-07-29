@@ -91,6 +91,34 @@ export class CandidateRepository {
             .get(id) as CandidateRow;
     }
 
+    /**
+     * Persiste la transición de estado de análisis (extracting/failed/…).
+     * Solo el estado: nunca contenido del CV.
+     */
+    setAnalysisStatus(id: string, status: AnalysisStatus): void {
+        this.db
+            .prepare(
+                `UPDATE candidate SET analysis_status = ?, updated_at = ${NOW_UTC} WHERE id = ?`,
+            )
+            .run(status, id);
+    }
+
+    /**
+     * Persiste el RESULTADO del resumen (BLUEPRINT §04/§17): cv_summary es
+     * el JSON completo devuelto por el modelo y cv_evidence su sub-objeto
+     * `evidence`. El texto extraído del CV NUNCA se guarda.
+     */
+    saveCvSummary(id: string, cvSummaryJson: string, cvEvidenceJson: string): void {
+        this.db
+            .prepare(
+                `UPDATE candidate
+                 SET cv_summary = ?, cv_evidence = ?, analysis_status = 'summarized',
+                     updated_at = ${NOW_UTC}
+                 WHERE id = ?`,
+            )
+            .run(cvSummaryJson, cvEvidenceJson, id);
+    }
+
     /** Borrado lógico: marca deleted_at (y updated_at) sin destruir datos. */
     softDelete(id: string): void {
         this.db

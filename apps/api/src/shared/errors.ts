@@ -14,6 +14,10 @@ export const APP_ERROR_CODES = [
     "LLM_UNAVAILABLE",
     "FORBIDDEN",
     "ACTIVE_PROCESS_EXISTS",
+    // Subida de CV (§16): tamaño y formato tienen códigos HTTP propios
+    // (413/415) distintos del 422 de LIMIT_EXCEEDED y del 400 de INVALID_INPUT.
+    "FILE_TOO_LARGE",
+    "UNSUPPORTED_MEDIA_TYPE",
 ] as const;
 
 export type AppErrorCode = (typeof APP_ERROR_CODES)[number];
@@ -27,6 +31,8 @@ const HTTP_STATUS_BY_CODE: Record<AppErrorCode, number> = {
     LLM_UNAVAILABLE: 502,
     FORBIDDEN: 403,
     ACTIVE_PROCESS_EXISTS: 409,
+    FILE_TOO_LARGE: 413,
+    UNSUPPORTED_MEDIA_TYPE: 415,
 };
 
 /**
@@ -41,6 +47,8 @@ const DEFAULT_MESSAGE_BY_CODE: Record<AppErrorCode, string> = {
     LLM_UNAVAILABLE: "El modelo local no está disponible en este momento.",
     FORBIDDEN: "No tienes permiso para realizar esta acción.",
     ACTIVE_PROCESS_EXISTS: "Ya existe un proceso activo.",
+    FILE_TOO_LARGE: "El archivo supera el tamaño máximo permitido.",
+    UNSUPPORTED_MEDIA_TYPE: "El formato de archivo no está permitido (PDF, DOCX o TXT).",
 };
 
 /**
