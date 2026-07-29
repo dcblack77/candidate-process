@@ -1,10 +1,13 @@
 import { Server as HttpServer } from "node:http";
 import { AppExpress } from "@expressots/adapter-express";
-import { AppContainer } from "@expressots/core";
+import { AppContainer, interfaces } from "@expressots/core";
 import { Application as ExpressApplication } from "express";
+import { AiModule } from "./ai/ai.module";
 import { CoreModule } from "./app.module";
+import { CandidatesModule } from "./candidates/candidates.module";
 import { loadEnv } from "./env";
 import { HealthModule } from "./health/health.module";
+import { ProcessModule } from "./process/process.module";
 import { currentUserMiddleware } from "./security/current-user.middleware";
 import { errorHandler } from "./shared/error-handler";
 
@@ -21,10 +24,23 @@ const LOCAL_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
  *   serverShutdown           → apagado ordenado.
  */
 export class App extends AppExpress {
-    private readonly container: AppContainer = this.configContainer([
-        CoreModule,
-        HealthModule,
-    ]);
+    private readonly container: AppContainer;
+
+    /**
+     * `coreModule` es inyectable para que los tests de integración puedan
+     * sustituir CoreModule (que abre data/local.db) por un módulo con la
+     * base de datos ":memory:". En producción no se pasa argumento.
+     */
+    constructor(coreModule: interfaces.ContainerModule = CoreModule) {
+        super();
+        this.container = this.configContainer([
+            coreModule,
+            HealthModule,
+            ProcessModule,
+            CandidatesModule,
+            AiModule,
+        ]);
+    }
 
     protected override globalConfiguration(): void {
         // Sin prefijo global: las rutas del blueprint (§10) cuelgan de la raíz.
