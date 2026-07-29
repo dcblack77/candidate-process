@@ -2,11 +2,36 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Estado del repositorio
+## Comandos
 
-Proyecto **greenfield**: hoy solo existe `BLUEPRINT.md`. No hay código, ni `package.json`, ni gestor de dependencias, ni tests, ni repositorio git inicializado. Por tanto **no hay comandos de build/lint/test todavía**; cuando se implemente el primer módulo hay que elegir stack, añadir el toolchain y documentar aquí los comandos reales.
+```bash
+pnpm install                 # instalar (workspace pnpm: apps/api + apps/web)
+pnpm dev                     # API (127.0.0.1:3010) + UI (127.0.0.1:5173) en paralelo
+pnpm dev:api / pnpm dev:web  # cada app por separado
+pnpm test                    # suite completa; api: 190 tests, web: 16
+pnpm --filter api test -- <patrón>   # un spec concreto (p. ej. -- weights, -- cv)
+pnpm build                   # tsc estricto + bundle de web
+pnpm --filter api lint       # eslint del backend
+bash scripts/smoke.sh        # smoke E2E real (requiere API arrancada y modelo en :8080)
+```
+
+Los tests del backend usan SQLite `:memory:` y un mock HTTP de llama.cpp — nunca tocan `data/local.db` ni el modelo real. El modelo local (llama.cpp, API OpenAI-compatible, `gemma-4-E2B-it-qat`) debe estar sirviendo en `LLM_BASE_URL` (default `http://localhost:8080`) solo para `pnpm dev` y el smoke.
 
 `BLUEPRINT.md` es la fuente de verdad funcional y de seguridad. Ante cualquier duda de alcance, modelo de datos o reglas, consultarlo antes de improvisar; si una decisión lo contradice, actualizar el blueprint en el mismo cambio.
+
+## Stack y decisiones clave
+
+- **Backend** `apps/api`: ExpressoTS 4 (Express + Inversify). `@inject` SIEMPRE explícito (tsx no emite `design:paramtypes`). Cada dominio es un módulo (controller + usecases + repository); `health/` es el patrón de referencia. El bind a 127.0.0.1 se fuerza en `app.ts` (`forceLocalhostBinding`, con verificación post-arranque que aborta si no es local) porque el adapter no expone host — no tocar sin entender el comentario de ese método.
+- **DB**: better-sqlite3 síncrono, SQL directo, migrador propio (`db/migrate.ts` + `db/migrations/NNN_*.sql`). WAL + foreign_keys ON. El single-active-process está forzado por índice único parcial.
+- **IA** `apps/api/src/ai/`: `LlmClient` (response_format json_schema + zod, reintentos con temperatura 0.2→0.4, cola de concurrencia 1, presupuesto de tokens). Prompts en `prompts/*.md` (raíz), cargados por `PromptLoader`; los comentarios HTML iniciales se eliminan antes de enviar.
+- **Frontend** `apps/web`: React + Vite, sin librerías de estado ni UI kits; CSS global con variables. Proxy `/api` → 127.0.0.1:3010. Tipos espejo de los DTOs en `src/api/types.ts` — si cambia un DTO del backend, actualizar el espejo.
+- `scoring/weights.ts` es la ÚNICA fuente de pesos y desempates; el modelo nunca calcula el score final (el backend lo recalcula siempre) y el frontend consume los pesos vía `GET /ranking`.
+- Límite de 5 regeneraciones de análisis = COUNT de `app_event` con `action='candidate.analyzed'`; 20 preguntas = COUNT en tabla; 10 exports/sesión = contador en memoria.
+- Errores: `AppError` con códigos tipados (`shared/errors.ts`) → `{error:{code,message}}`; los errores no controlados se loguean sin mensaje (solo tipo + frames).
+
+## Deuda técnica
+
+Cifrado en reposo de `data/local.db` pendiente (§17) — obligatorio antes de usar datos reales. Ver README.
 
 ## Qué es el sistema
 
