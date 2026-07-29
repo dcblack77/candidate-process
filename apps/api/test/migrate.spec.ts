@@ -12,6 +12,7 @@ describe("migrador mínimo (sobre :memory:)", () => {
         const { applied } = runMigrations(db, MIGRATIONS_DIR);
 
         expect(applied).toContain("001_init.sql");
+        expect(applied).toContain("002_interview_answers.sql");
 
         const rows = db
             .prepare("SELECT name FROM _migrations ORDER BY id")

@@ -3,18 +3,36 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { friendlyMessage } from "../api/errors";
 import {
+    AnswerQuestionBody,
+    AnswerQuestionResponseDTO,
     CandidateDetailDTO,
     CandidateScoreDTO,
     CRITERIA,
     Criterion,
     CRITERION_LABELS,
     CvSummary,
+    emptyInterviewSummary,
     EvidenceItem,
     EvidenceSummary,
     InterviewQuestionDTO,
+    InterviewSummaryDTO,
+    MAX_ANSWER_NOTES_LENGTH,
+    MAX_ANSWER_SCORE,
+    MIN_ANSWER_SCORE,
 } from "../api/types";
 import { EvidenceList } from "../components/EvidenceList";
-import { ErrorAlert, Spinner, StatusBadge } from "../components/ui";
+import {
+    ErrorAlert,
+    formatDate,
+    Spinner,
+    StatusBadge,
+} from "../components/ui";
+
+/** Valores seleccionables de la nota de una respuesta: 1…10. */
+const ANSWER_SCORE_VALUES: readonly number[] = Array.from(
+    { length: MAX_ANSWER_SCORE - MIN_ANSWER_SCORE + 1 },
+    (_, index) => MIN_ANSWER_SCORE + index,
+);
 
 /**
  * Pantalla Detalle de candidato (§21): resumen, evidencias por criterio
@@ -41,6 +59,27 @@ export function CandidateDetailPage() {
     useEffect(() => {
         void load();
     }, [load]);
+
+    /**
+     * Aplica la respuesta del PATCH de una respuesta de entrevista sin
+     * recargar el candidato entero: sustituye la pregunta editada y adopta
+     * los agregados ya recalculados por el backend (feedback inmediato).
+     */
+    const applyAnswer = useCallback((updated: AnswerQuestionResponseDTO) => {
+        setCandidate((prev) =>
+            prev === null
+                ? prev
+                : {
+                      ...prev,
+                      questions: prev.questions.map((question) =>
+                          question.id === updated.question.id
+                              ? updated.question
+                              : question,
+                      ),
+                      interview: updated.interview,
+                  },
+        );
+    }, []);
 
     if (error) {
         return (
@@ -157,7 +196,11 @@ export function CandidateDetailPage() {
             <QuestionsSection
                 candidateId={id}
                 questions={candidate.questions}
+                // Fallback defensivo: el backend siempre envía `interview`,
+                // pero la UI no debe romperse si llega una respuesta parcial.
+                interview={candidate.interview ?? emptyInterviewSummary()}
                 onGenerated={load}
+                onAnswered={applyAnswer}
             />
             <NotesSection
                 candidateId={id}
@@ -400,11 +443,15 @@ function ScoreEditor({
 function QuestionsSection({
     candidateId,
     questions,
+    interview,
     onGenerated,
+    onAnswered,
 }: {
     candidateId: string;
     questions: InterviewQuestionDTO[];
+    interview: InterviewSummaryDTO;
     onGenerated: () => Promise<void>;
+    onAnswered: (updated: AnswerQuestionResponseDTO) => void;
 }) {
     const [count, setCount] = useState("8");
     const [generating, setGenerating] = useState(false);
@@ -431,11 +478,17 @@ function QuestionsSection({
     return (
         <section className="card">
             <h2>Preguntas de entrevista ({questions.length})</h2>
+            <InterviewSummaryPanel interview={interview} />
             {questions.length === 0 && (
                 <p className="muted">Aún no se han generado preguntas.</p>
             )}
             {questions.map((question) => (
-                <QuestionBlock key={question.id} question={question} />
+                <QuestionBlock
+                    key={question.id}
+                    candidateId={candidateId}
+                    question={question}
+                    onAnswered={onAnswered}
+                />
             ))}
             <div className="field-inline" style={{ marginTop: "0.75rem" }}>
                 <div>
@@ -466,12 +519,230 @@ function QuestionsSection({
     );
 }
 
+/**
+ * Panel de agregados de entrevista (§15). Se actualiza con el `interview`
+ * que devuelve cada PATCH, sin recargar el candidato.
+ */
+function InterviewSummaryPanel({
+    interview,
+}: {
+    interview: InterviewSummaryDTO;
+}) {
+    return (
+        <div className="interview-summary" aria-label="Resumen de entrevista">
+            <div className="interview-overall">
+                <span className="interview-overall-value">
+                    {interview.overall === null
+                        ? "—"
+                        : interview.overall.toFixed(1)}
+                </span>
+                <span className="interview-overall-scale">/10</span>
+                <span className="interview-overall-caption muted small">
+                    Nota de entrevista
+                </span>
+                <span className="interview-overall-caption muted small">
+                    {interview.answeredCount}/{interview.totalCount} preguntas
+                    puntuadas
+                </span>
+            </div>
+            <table className="interview-table">
+                <caption className="small muted">
+                    Media por criterio (escala 1-10; 10 = la respuesta que más
+                    se ajusta a lo esperado). No entra en el score final: solo
+                    desempata en la comparativa.
+                </caption>
+                <thead>
+                    <tr>
+                        <th>Criterio</th>
+                        <th>Media</th>
+                        <th>Respuestas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {CRITERIA.map((criterion) => {
+                        const entry = interview.byCriterion[criterion];
+                        return (
+                            <tr key={criterion}>
+                                <td>{CRITERION_LABELS[criterion]}</td>
+                                <td>
+                                    {entry === null
+                                        ? "—"
+                                        : `${entry.average.toFixed(1)}/10`}
+                                </td>
+                                <td>{entry === null ? "—" : entry.answered}</td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+/**
+ * Registro de la respuesta a una pregunta: nota 1-10 y notas privadas.
+ *
+ * DECISIONES DE USO EN VIVO (se rellena DURANTE la entrevista):
+ * - La nota es una fila de 10 botones: un clic, sin teclado ni foco previo,
+ *   y el valor elegido queda resaltado. Un input numérico obligaría a
+ *   enfocar, teclear y confirmar.
+ * - Las notas de texto se guardan con botón explícito (o Ctrl/Cmd+Enter):
+ *   un autoguardado con debounce dispararía PATCH a media frase y cada
+ *   PATCH recalcula los agregados, lo que produciría parpadeo del panel.
+ */
+function AnswerEditor({
+    candidateId,
+    question,
+    onAnswered,
+}: {
+    candidateId: string;
+    question: InterviewQuestionDTO;
+    onAnswered: (updated: AnswerQuestionResponseDTO) => void;
+}) {
+    const savedNotes = question.answerNotes ?? "";
+    const [notes, setNotes] = useState(savedNotes);
+    const [pending, setPending] = useState<"score" | "notes" | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    const notesDirty = notes !== savedNotes;
+
+    async function send(body: AnswerQuestionBody, kind: "score" | "notes") {
+        setPending(kind);
+        setError(null);
+        try {
+            onAnswered(await api.answerQuestion(candidateId, question.id, body));
+        } catch (err) {
+            setError(friendlyMessage(err));
+        } finally {
+            setPending(null);
+        }
+    }
+
+    const notesFieldId = `answer-notes-${question.id}`;
+
+    return (
+        <div className="answer-editor">
+            <div
+                className="answer-score"
+                role="group"
+                aria-label="Nota de la respuesta (1-10)"
+            >
+                <span className="answer-score-label">
+                    Nota de la respuesta{" "}
+                    <span className="muted small">
+                        (1-10; 10 = la más ajustada a lo esperado)
+                    </span>
+                </span>
+                <div className="answer-score-row">
+                    {ANSWER_SCORE_VALUES.map((value) => {
+                        const selected = question.answerScore === value;
+                        return (
+                            <button
+                                key={value}
+                                type="button"
+                                className={
+                                    selected
+                                        ? "answer-score-btn selected"
+                                        : "answer-score-btn"
+                                }
+                                aria-pressed={selected}
+                                title={`Puntuar la respuesta con ${value} de 10`}
+                                disabled={pending !== null}
+                                onClick={() =>
+                                    void send({ score: value }, "score")
+                                }
+                            >
+                                {value}
+                            </button>
+                        );
+                    })}
+                    <button
+                        type="button"
+                        className="link-like"
+                        disabled={
+                            pending !== null || question.answerScore === null
+                        }
+                        onClick={() => void send({ score: null }, "score")}
+                    >
+                        Borrar nota
+                    </button>
+                </div>
+            </div>
+
+            <div className="field">
+                <label htmlFor={notesFieldId}>Notas de la respuesta</label>
+                <textarea
+                    id={notesFieldId}
+                    rows={3}
+                    maxLength={MAX_ANSWER_NOTES_LENGTH}
+                    placeholder="Qué respondió, señales observadas…"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    onKeyDown={(e) => {
+                        // Atajo para no soltar el teclado durante la entrevista.
+                        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                            e.preventDefault();
+                            void send({ notes }, "notes");
+                        }
+                    }}
+                />
+                <p className="muted small">
+                    Información <strong>privada</strong>: no se incluye en el
+                    export por defecto (solo si marcas «Notas privadas» al
+                    exportar).
+                </p>
+                <div className="actions-row">
+                    <button
+                        type="button"
+                        disabled={pending !== null || !notesDirty}
+                        onClick={() => void send({ notes }, "notes")}
+                    >
+                        {pending === "notes"
+                            ? "Guardando…"
+                            : "Guardar notas de la respuesta"}
+                    </button>
+                    {notesDirty ? (
+                        <span className="muted small">Sin guardar</span>
+                    ) : (
+                        savedNotes !== "" && (
+                            <span className="muted small">Notas guardadas.</span>
+                        )
+                    )}
+                </div>
+            </div>
+            <ErrorAlert message={error} />
+        </div>
+    );
+}
+
 /** Bloque completo de §14, colapsable por pregunta. */
-function QuestionBlock({ question }: { question: InterviewQuestionDTO }) {
+function QuestionBlock({
+    candidateId,
+    question,
+    onAnswered,
+}: {
+    candidateId: string;
+    question: InterviewQuestionDTO;
+    onAnswered: (updated: AnswerQuestionResponseDTO) => void;
+}) {
     return (
         <details className="question">
-            <summary>{question.question}</summary>
+            <summary>
+                {question.question}{" "}
+                {question.answerScore !== null && (
+                    <span className="badge badge-answered">
+                        Respondida · {question.answerScore}/10
+                        {question.answeredAt !== null &&
+                            ` · ${formatDate(question.answeredAt)}`}
+                    </span>
+                )}
+            </summary>
             <div className="question-body">
+                <AnswerEditor
+                    candidateId={candidateId}
+                    question={question}
+                    onAnswered={onAnswered}
+                />
                 <dl>
                     <dt>Dimensión</dt>
                     <dd>{question.dimension}</dd>

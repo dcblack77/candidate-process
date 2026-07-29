@@ -451,3 +451,114 @@ pre.export-preview {
     align-items: center;
     flex-wrap: wrap;
 }
+
+/* ── Entrevista: agregados y registro de respuestas (§15) ── */
+
+/* La nota de entrevista es escala 1-10: se marca siempre el "/10" para no
+   confundirla con la rúbrica del CV (1-5). */
+.interview-summary {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    background: var(--color-info-soft);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 0.85rem 1rem;
+    margin-bottom: 1rem;
+}
+
+.interview-overall {
+    display: flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+    min-width: 11rem;
+}
+
+.interview-overall-value {
+    font-size: 2.2rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--color-primary);
+}
+
+.interview-overall-scale {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+}
+
+.interview-overall-caption {
+    display: block;
+    flex-basis: 100%;
+}
+
+.interview-table {
+    flex: 1 1 20rem;
+    background: transparent;
+    font-size: 0.9rem;
+}
+
+.interview-table caption {
+    caption-side: bottom;
+    text-align: left;
+    padding-top: 0.4rem;
+}
+
+.interview-table th,
+.interview-table td {
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.badge-answered {
+    background: var(--color-success-soft);
+    color: var(--color-success);
+}
+
+.answer-editor {
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 0.75rem;
+    margin-bottom: 0.25rem;
+}
+
+.answer-score-label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin: 0.6rem 0 0.35rem;
+}
+
+.answer-score-row {
+    display: flex;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+/* Fila de 10 botones: objetivo grande y un solo clic (se usa en vivo). */
+.answer-score-btn {
+    min-width: 2.4rem;
+    padding: 0.4rem 0.5rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+.answer-score-btn.selected {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+}
+
+.answer-score-btn.selected:hover:not(:disabled) {
+    background: var(--color-primary-hover);
+}
+
+/* Columna de entrevista en la comparativa: escala distinta a la rúbrica. */
+.interview-cell {
+    font-weight: 600;
+    color: var(--color-primary);
+    white-space: nowrap;
+}

@@ -1,6 +1,8 @@
 import {
     AddNoteResponseDTO,
     AnalyzeResponseDTO,
+    AnswerQuestionBody,
+    AnswerQuestionResponseDTO,
     CandidateDeleteResponseDTO,
     CandidateDetailDTO,
     CandidateListItemDTO,
@@ -155,6 +157,21 @@ export const api = {
         return request(
             `/candidates/${encodeURIComponent(id)}/questions`,
             jsonInit("POST", count === undefined ? {} : { count }),
+        );
+    },
+    /**
+     * Registra la nota (1-10) y/o las notas de texto de una respuesta.
+     * `score: null` borra la nota; `notes: ""` vacía el texto. La respuesta
+     * trae los agregados de entrevista ya recalculados.
+     */
+    answerQuestion(
+        candidateId: string,
+        questionId: string,
+        body: AnswerQuestionBody,
+    ): Promise<AnswerQuestionResponseDTO> {
+        return request(
+            `/candidates/${encodeURIComponent(candidateId)}/questions/${encodeURIComponent(questionId)}/answer`,
+            jsonInit("PATCH", body),
         );
     },
 

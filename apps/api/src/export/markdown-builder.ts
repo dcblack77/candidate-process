@@ -1,4 +1,5 @@
 import { Criterion, CRITERIA } from "../ai/schemas/common";
+import { InterviewScore } from "../scoring/interview-score";
 import { CriterionScores, WEIGHTS } from "../scoring/weights";
 import { ExportInclude } from "./export.dto";
 
@@ -9,6 +10,11 @@ import { ExportInclude } from "./export.dto";
  * resumen breve, fortalezas (evidencias explícitas más fuertes), riesgos y
  * preguntas recomendadas. Notas privadas SOLO si include.privateNotes=true.
  * El texto extraído del CV no se persiste, así que nunca puede incluirse.
+ *
+ * Entrevista: las NOTAS NUMÉRICAS (global, por criterio y por pregunta) sí
+ * salen en el export normal — son puntuación, no texto sensible. El TEXTO de
+ * las notas de respuesta es dato privado (§17) y solo se escribe con
+ * include.privateNotes=true, igual que las notas del evaluador.
  */
 
 /** Etiquetas en español de los criterios (§06). */
@@ -19,6 +25,15 @@ const CRITERION_LABELS: Record<Criterion, string> = {
     production: "Producción",
     stack: "Stack",
 };
+
+/** Pregunta recomendada y, si la hay, la evaluación de su respuesta. */
+export interface ExportQuestionData {
+    question: string;
+    /** Nota 1-10 de la respuesta; null si no está puntuada. */
+    answerScore: number | null;
+    /** Texto privado de la respuesta: solo se usa si include.privateNotes=true. */
+    answerNotes: string | null;
+}
 
 /** Datos ya ordenados de un candidato para el export. */
 export interface ExportCandidateData {
@@ -33,8 +48,10 @@ export interface ExportCandidateData {
     /** Evidencias explícitas más fuertes del análisis. */
     strengths: string[];
     risks: string[];
-    /** Preguntas recomendadas (texto). */
-    questions: string[];
+    /** Preguntas recomendadas con la evaluación de su respuesta. */
+    questions: ExportQuestionData[];
+    /** Agregados de las notas de entrevista (numéricos, no sensibles). */
+    interview: InterviewScore;
     /** Notas privadas: solo se usan si include.privateNotes=true. */
     manualNotes: string | null;
 }
@@ -70,16 +87,18 @@ export function buildExportMarkdown(params: ExportDocumentParams): string {
     if (include.ranking) {
         lines.push("## Ranking");
         lines.push("");
-        lines.push("| Posición | Candidato | Score final | Confianza |");
-        lines.push("|---:|---|---:|---:|");
+        lines.push(
+            "| Posición | Candidato | Score final | Entrevista | Confianza |",
+        );
+        lines.push("|---:|---|---:|---:|---:|");
         for (const entry of entries) {
             const review = entry.needsManualReview ? " (revisión manual)" : "";
             lines.push(
-                `| ${entry.position} | ${entry.name}${review} | ${entry.finalScore.toFixed(2)} | ${formatConfidence(entry.confidence)} |`,
+                `| ${entry.position} | ${entry.name}${review} | ${entry.finalScore.toFixed(2)} | ${formatInterview(entry.interview.overall)} | ${formatConfidence(entry.confidence)} |`,
             );
         }
         if (entries.length === 0) {
-            lines.push("| — | Sin candidatos puntuados | — | — |");
+            lines.push("| — | Sin candidatos puntuados | — | — | — |");
         }
         lines.push("");
         if (unscoredNames.length > 0) {
@@ -140,11 +159,42 @@ export function buildExportMarkdown(params: ExportDocumentParams): string {
             lines.push("");
         }
 
+        // Notas de entrevista: solo si hay al menos una respuesta puntuada
+        // (el documento debe seguir siendo "limpio y limitado", §19).
+        if (entry.interview.answeredCount > 0) {
+            lines.push("### Entrevista");
+            lines.push("");
+            lines.push(
+                `Nota global de entrevista: **${formatInterview(entry.interview.overall)}** / 10 ` +
+                    `(${entry.interview.answeredCount} de ${entry.interview.totalCount} respuestas puntuadas).`,
+            );
+            lines.push("");
+            lines.push("| Criterio | Nota media | Respuestas |");
+            lines.push("|---|---:|---:|");
+            for (const criterion of CRITERIA) {
+                const average = entry.interview.byCriterion[criterion];
+                lines.push(
+                    `| ${CRITERION_LABELS[criterion]} | ${average === null ? "—" : average.average.toFixed(1)} | ${average?.answered ?? 0} |`,
+                );
+            }
+            lines.push("");
+        }
+
         if (include.questions && entry.questions.length > 0) {
             lines.push("### Preguntas recomendadas");
             lines.push("");
             for (const question of entry.questions) {
-                lines.push(`- ${question}`);
+                const score =
+                    question.answerScore === null
+                        ? ""
+                        : ` (nota de la respuesta: ${question.answerScore}/10)`;
+                lines.push(`- ${question.question}${score}`);
+                // El TEXTO de la respuesta es dato privado (§17).
+                if (include.privateNotes && question.answerNotes) {
+                    lines.push(
+                        `  - Respuesta anotada: ${question.answerNotes}`,
+                    );
+                }
             }
             lines.push("");
         }
@@ -168,6 +218,11 @@ const WEIGHTS_LINE = CRITERIA.map(
 
 function formatConfidence(confidence: number | null): string {
     return confidence === null ? "—" : confidence.toFixed(2);
+}
+
+/** Nota de entrevista con 1 decimal; "—" si el candidato no tiene ninguna. */
+function formatInterview(overall: number | null): string {
+    return overall === null ? "—" : overall.toFixed(1);
 }
 
 /**

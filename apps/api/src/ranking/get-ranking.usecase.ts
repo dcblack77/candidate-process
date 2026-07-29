@@ -8,7 +8,12 @@ import {
     ProcessRepository,
     requireActiveProcess,
 } from "../process/process.repository";
-import { QuestionRepository } from "../questions/question.repository";
+import {
+    InterviewQuestionRow,
+    QuestionRepository,
+} from "../questions/question.repository";
+import { interviewScoreOf } from "../questions/questions.dto";
+import { InterviewScore } from "../scoring/interview-score";
 import {
     CandidateScoreRow,
     ScoreRepository,
@@ -63,6 +68,9 @@ export class GetRankingUseCase {
             score: CandidateScoreRow;
             scores: CriterionScores;
             finalScore: number;
+            questions: InterviewQuestionRow[];
+            interview: InterviewScore;
+            interviewScore: number | null;
             confidence: number | null;
         }> = [];
 
@@ -85,6 +93,10 @@ export class GetRankingUseCase {
                     score[criterion] as number,
                 ]),
             ) as CriterionScores;
+            // Las preguntas se leen una sola vez: sirven para las preguntas
+            // clave y para los agregados de entrevista del desempate.
+            const questions = this.questions.listByCandidate(candidate.id);
+            const interview = interviewScoreOf(questions);
             rankable.push({
                 candidate,
                 score,
@@ -93,6 +105,9 @@ export class GetRankingUseCase {
                 // fila viniera de una edición parcial antigua sin final_score.
                 finalScore:
                     score.final_score ?? computeFinalScore(criterionScores),
+                questions,
+                interview,
+                interviewScore: interview.overall,
                 confidence: score.confidence,
             });
         }
@@ -107,10 +122,11 @@ export class GetRankingUseCase {
                 confidence: entry.confidence,
                 evidenceSummary: briefEvidenceSummary(entry.score),
                 pendingDoubts: doubtsOf(entry.score),
-                keyQuestions: this.questions
-                    .listByCandidate(entry.candidate.id)
+                keyQuestions: entry.questions
                     .slice(0, KEY_QUESTIONS_COUNT)
                     .map((question) => question.question),
+                interviewScore: entry.interviewScore,
+                interviewByCriterion: entry.interview.byCriterion,
                 tieBreakApplied: entry.tieBreakApplied,
                 needsManualReview: entry.needsManualReview,
             }),

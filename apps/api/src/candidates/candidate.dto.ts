@@ -1,4 +1,8 @@
 import { InterviewQuestionDTO } from "../questions/questions.dto";
+import {
+    emptyInterviewScore,
+    InterviewScore,
+} from "../scoring/interview-score";
 import { CandidateScoreDTO } from "../scoring/scoring.dto";
 import { AppError } from "../shared/errors";
 import { AnalysisStatus, CandidateRow } from "./candidate.repository";
@@ -30,6 +34,12 @@ export interface CandidateDetailDTO extends CandidateListItemDTO {
     score: CandidateScoreDTO | null;
     /** Preguntas de entrevista persistidas (vacío si aún no hay). */
     questions: InterviewQuestionDTO[];
+    /**
+     * Agregados de las notas de las respuestas de entrevista. Siempre
+     * presente: sin respuestas puntuadas, `overall` es null y `byCriterion`
+     * son todos null.
+     */
+    interview: InterviewScore;
     updatedAt: string;
 }
 
@@ -67,6 +77,7 @@ export function toCandidateDetail(
     row: CandidateRow,
     score: CandidateScoreDTO | null = null,
     questions: InterviewQuestionDTO[] = [],
+    interview: InterviewScore = emptyInterviewScore(),
 ): CandidateDetailDTO {
     return {
         ...toCandidateListItem(row),
@@ -75,6 +86,7 @@ export function toCandidateDetail(
         cvEvidence: parseJsonColumn(row.cv_evidence),
         score,
         questions,
+        interview,
         updatedAt: row.updated_at,
     };
 }

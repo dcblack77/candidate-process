@@ -4,7 +4,7 @@ import {
     requireActiveProcess,
 } from "../process/process.repository";
 import { QuestionRepository } from "../questions/question.repository";
-import { toQuestionDTO } from "../questions/questions.dto";
+import { interviewScoreOf, toQuestionDTO } from "../questions/questions.dto";
 import { ScoreRepository } from "../scoring/score.repository";
 import { toCandidateScoreDTO } from "../scoring/scoring.dto";
 import { AppError } from "../shared/errors";
@@ -16,7 +16,8 @@ import { CandidateRepository } from "./candidate.repository";
  * GET /candidates/:id — detalle completo del candidato: cv_summary y
  * cv_evidence parseados a JSON, más su puntuación (si existe) y sus
  * preguntas de entrevista persistidas (las preguntas no tienen GET propio
- * en el blueprint §10: se sirven aquí). NOT_FOUND si no existe, está
+ * en el blueprint §10: se sirven aquí) con sus respuestas y los agregados de
+ * entrevista (`interview`). NOT_FOUND si no existe, está
  * soft-deleted o pertenece a otro proceso (misma respuesta en los tres
  * casos: no se revela cuál).
  */
@@ -40,10 +41,12 @@ export class GetCandidateUseCase {
             throw new AppError("NOT_FOUND");
         }
         const score = this.scores.findByCandidate(id);
+        const questions = this.questions.listByCandidate(id);
         return toCandidateDetail(
             row,
             score ? toCandidateScoreDTO(score) : null,
-            this.questions.listByCandidate(id).map(toQuestionDTO),
+            questions.map(toQuestionDTO),
+            interviewScoreOf(questions),
         );
     }
 }

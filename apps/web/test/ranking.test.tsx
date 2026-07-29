@@ -30,6 +30,14 @@ const RANKING: RankingResponseDTO = {
             evidenceSummary: {},
             pendingDoubts: ["¿Lideró la migración o participó?"],
             keyQuestions: ["Cuéntame una transición tecnológica concreta."],
+            interviewScore: 8.4,
+            interviewByCriterion: {
+                adaptability: { average: 9, answered: 2 },
+                fundamentals: { average: 7.5, answered: 2 },
+                depth: null,
+                production: null,
+                stack: null,
+            },
             tieBreakApplied: null,
             needsManualReview: false,
         },
@@ -49,6 +57,14 @@ const RANKING: RankingResponseDTO = {
             evidenceSummary: {},
             pendingDoubts: [],
             keyQuestions: [],
+            interviewScore: null,
+            interviewByCriterion: {
+                adaptability: null,
+                fundamentals: null,
+                depth: null,
+                production: null,
+                stack: null,
+            },
             tieBreakApplied: "adaptability",
             needsManualReview: true,
         },
@@ -108,5 +124,64 @@ describe("RankingPage", () => {
             screen.getByText("¿Lideró la migración o participó?"),
         ).toBeInTheDocument();
         expect(screen.getByText("Alan Turing")).toBeInTheDocument();
+    });
+
+    it("muestra la columna Entrevista en escala /10 y '—' cuando no hay notas", async () => {
+        installFetchMock({
+            "GET /api/ranking": () => jsonResponse(RANKING),
+        });
+        render(
+            <MemoryRouter>
+                <RankingPage />
+            </MemoryRouter>,
+        );
+
+        // La cabecera deja claro que la escala NO es la rúbrica 1-5.
+        const header = await screen.findByRole("columnheader", {
+            name: /Entrevista/,
+        });
+        expect(header.textContent).toContain("1-10");
+
+        const rows = screen.getAllByRole("row");
+        const adaRow = rows.find((row) =>
+            row.textContent?.includes("Ada Lovelace"),
+        )!;
+        const graceRow = rows.find((row) =>
+            row.textContent?.includes("Grace Hopper"),
+        )!;
+        expect(within(adaRow).getByText("8.4/10")).toBeInTheDocument();
+        expect(within(graceRow).getByText("—")).toBeInTheDocument();
+
+        // Desglose por criterio al expandir la fila.
+        expect(
+            screen.getByText(/Adaptabilidad: 9\.0\/10 \(2 respuestas\)/),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByText(/Fundamentos: 7\.5\/10 \(2 respuestas\)/),
+        ).toBeInTheDocument();
+    });
+
+    it("el badge dice 'desempatado por entrevista' cuando tieBreakApplied es interview", async () => {
+        installFetchMock({
+            "GET /api/ranking": () =>
+                jsonResponse({
+                    ...RANKING,
+                    entries: [
+                        RANKING.entries[0]!,
+                        {
+                            ...RANKING.entries[1]!,
+                            tieBreakApplied: "interview",
+                        },
+                    ],
+                }),
+        });
+        render(
+            <MemoryRouter>
+                <RankingPage />
+            </MemoryRouter>,
+        );
+
+        const badge = await screen.findByText(/desempatado por entrevista/i);
+        expect(badge).toHaveClass("badge-neutral");
     });
 });

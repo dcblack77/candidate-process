@@ -12,6 +12,8 @@ import { createTestApp, eventsByAction, resetDb, TestApp } from "./app-helpers";
  */
 
 const SENTINEL_NOTE = "NOTA-PRIVADA-CENTINELA-77";
+/** Texto de la respuesta a una pregunta: dato privado (§17). */
+const SENTINEL_ANSWER_NOTE = "RESPUESTA-PRIVADA-CENTINELA-88";
 
 describe("POST /export", () => {
     let app: TestApp;
@@ -95,10 +97,16 @@ describe("POST /export", () => {
             }),
             id,
         );
+        const questionId = newId();
         db.prepare(
             `INSERT INTO interview_question (id, candidate_id, criterion, dimension, question)
              VALUES (?, ?, 'adaptability', 'velocidad', ?)`,
-        ).run(newId(), id, "PREGUNTA-RECOMENDADA: cuéntame una transición.");
+        ).run(questionId, id, "PREGUNTA-RECOMENDADA: cuéntame una transición.");
+        // Respuesta evaluada: nota numérica (no sensible) + texto privado.
+        await request
+            .patch(`/candidates/${id}/questions/${questionId}/answer`)
+            .send({ score: 8, notes: SENTINEL_ANSWER_NOTE })
+            .expect(200);
         return id;
     }
 
@@ -144,6 +152,10 @@ describe("POST /export", () => {
             // La nota centinela NO aparece por defecto.
             expect(content).not.toContain(SENTINEL_NOTE);
             expect(content).not.toContain("Notas privadas");
+            // El TEXTO de la respuesta tampoco (§17), pero su NOTA sí.
+            expect(content).not.toContain(SENTINEL_ANSWER_NOTE);
+            expect(content).not.toContain("Respuesta anotada");
+            expect(content).toContain("nota de la respuesta: 8/10");
 
             // Auditoría: export.generated sin datos sensibles.
             const events = eventsByAction(db, "export.generated");
@@ -180,6 +192,10 @@ describe("POST /export", () => {
             expect(res.status).toBe(200);
             expect(res.body.content).toContain("### Notas privadas");
             expect(res.body.content).toContain(SENTINEL_NOTE);
+            // El texto de la respuesta acompaña a su pregunta.
+            expect(res.body.content).toContain(
+                `- Respuesta anotada: ${SENTINEL_ANSWER_NOTE}`,
+            );
 
             expect(
                 eventsByAction(db, "export.included_sensitive"),
@@ -188,6 +204,59 @@ describe("POST /export", () => {
             expect(
                 JSON.parse(generated[0].metadata as string).sensitiveIncluded,
             ).toBe(true);
+        });
+    });
+
+    describe("notas de entrevista (numéricas: no son dato sensible)", () => {
+        it("la tabla de ranking lleva columna Entrevista con la nota global", async () => {
+            await createProcess();
+            await seedScoredCandidate("Ana Ejemplo");
+
+            const res = await request.post("/export").send({});
+            expect(res.status).toBe(200);
+
+            const content: string = res.body.content;
+            expect(content).toContain(
+                "| Posición | Candidato | Score final | Entrevista | Confianza |",
+            );
+            // Única respuesta puntuada (adaptabilidad, 8) → global 8.0.
+            expect(content).toContain(
+                "| 1 | Ana Ejemplo | 3.75 | 8.0 | 0.80 |",
+            );
+        });
+
+        it("la sección por candidato resume la entrevista por criterio", async () => {
+            await createProcess();
+            await seedScoredCandidate("Ana Ejemplo");
+
+            const content: string = (await request.post("/export").send({}))
+                .body.content;
+            expect(content).toContain("### Entrevista");
+            expect(content).toContain(
+                "Nota global de entrevista: **8.0** / 10 (1 de 1 respuestas puntuadas).",
+            );
+            expect(content).toContain("| Adaptabilidad | 8.0 | 1 |");
+            expect(content).toContain("| Stack | — | 0 |");
+        });
+
+        it("candidato sin respuestas puntuadas: '—' en la tabla y sin sección de entrevista", async () => {
+            await createProcess();
+            const id = await createCandidate("Sin Entrevista");
+            await request
+                .patch(`/candidates/${id}/score`)
+                .send({
+                    adaptability: 3,
+                    fundamentals: 3,
+                    depth: 3,
+                    production: 3,
+                    stack: 3,
+                })
+                .expect(200);
+
+            const content: string = (await request.post("/export").send({}))
+                .body.content;
+            expect(content).toContain("| 1 | Sin Entrevista | 3.00 | — | — |");
+            expect(content).not.toContain("### Entrevista");
         });
     });
 

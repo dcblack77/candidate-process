@@ -1,5 +1,6 @@
 import { Criterion } from "../ai/schemas/common";
 import { AnalysisStatus } from "../candidates/candidate.repository";
+import { CriterionInterviewAverage } from "../scoring/interview-score";
 import { TieBreakLevel } from "../scoring/weights";
 
 /**
@@ -20,6 +21,14 @@ export interface RankingEntryDTO {
     pendingDoubts: string[];
     /** Primeras 3 preguntas de entrevista persistidas. */
     keyQuestions: string[];
+    /**
+     * Nota global de entrevista (1-10, media ponderada renormalizada sobre
+     * los criterios con respuestas); null si no hay ninguna respuesta
+     * puntuada. NO entra en finalScore: solo desempata (§15).
+     */
+    interviewScore: number | null;
+    /** Media de entrevista por criterio; null en los criterios sin respuestas. */
+    interviewByCriterion: Record<Criterion, CriterionInterviewAverage | null>;
     /** Nivel de desempate que resolvió un empate de score final, si lo hubo. */
     tieBreakApplied: TieBreakLevel | null;
     /** true si el empate persiste tras la confianza (§15, paso 7). */

@@ -11,8 +11,9 @@ import {
 
 /**
  * Unit exhaustivo de scoring/weights.ts (BLUEPRINT §06 y §15): fórmula
- * exacta calculada a mano, redondeo, cada nivel de desempate por separado,
- * empate total → needsManualReview y orden estable.
+ * exacta calculada a mano, redondeo, cada nivel de desempate por separado
+ * (incluida la nota de entrevista), empate total → needsManualReview y
+ * orden estable.
  */
 
 function scores(
@@ -28,8 +29,14 @@ function scores(
 function entry(
     s: CriterionScores,
     confidence: number | null = 0.5,
+    interviewScore: number | null = null,
 ): RankableEntry {
-    return { finalScore: computeFinalScore(s), scores: s, confidence };
+    return {
+        finalScore: computeFinalScore(s),
+        scores: s,
+        interviewScore,
+        confidence,
+    };
 }
 
 describe("WEIGHTS y TIE_BREAK_ORDER (única fuente)", () => {
@@ -45,13 +52,14 @@ describe("WEIGHTS y TIE_BREAK_ORDER (única fuente)", () => {
         expect(Math.round(sum * 100) / 100).toBe(1);
     });
 
-    it("orden de desempate de §15", () => {
+    it("orden de desempate de §15, con la entrevista entre stack y confianza", () => {
         expect(TIE_BREAK_ORDER).toEqual([
             "adaptability",
             "fundamentals",
             "production",
             "depth",
             "stack",
+            "interview",
             "confidence",
         ]);
     });
@@ -149,11 +157,13 @@ describe("compareCandidates y rankEntries: desempates de §15", () => {
         const a: RankableEntry = {
             finalScore: 3,
             scores: scores(3, 3, 3, 3, 4),
+            interviewScore: null,
             confidence: 0.5,
         };
         const b: RankableEntry = {
             finalScore: 3,
             scores: scores(3, 3, 3, 3, 2),
+            interviewScore: null,
             confidence: 0.5,
         };
 
@@ -165,7 +175,40 @@ describe("compareCandidates y rankEntries: desempates de §15", () => {
         expect(ranked[1].tieBreakApplied).toBe("stack");
     });
 
-    it("nivel 6 — confianza: scores idénticos, decide la mayor confianza", () => {
+    it("nivel 6 — entrevista: con los cinco criterios iguales decide la nota de entrevista", () => {
+        const a = entry(scores(3, 3, 3, 3, 3), 0.5, 8.4);
+        const b = entry(scores(3, 3, 3, 3, 3), 0.5, 6.1);
+
+        expect(compareCandidates(a, b)).toBeLessThan(0);
+        const ranked = rankEntries([b, a]);
+        expect(ranked[0].interviewScore).toBe(8.4);
+        expect(ranked[0].tieBreakApplied).toBe("interview");
+        expect(ranked[1].tieBreakApplied).toBe("interview");
+        expect(ranked.every((r) => !r.needsManualReview)).toBe(true);
+    });
+
+    it("la entrevista se aplica ANTES que la confianza", () => {
+        // Menor confianza pero con entrevista puntuada: gana igualmente.
+        const interviewed = entry(scores(3, 3, 3, 3, 3), 0.1, 5);
+        const onlyConfidence = entry(scores(3, 3, 3, 3, 3), 0.9, 4.9);
+
+        const ranked = rankEntries([onlyConfidence, interviewed]);
+        expect(ranked[0].interviewScore).toBe(5);
+        expect(ranked[0].confidence).toBe(0.1);
+        expect(ranked[0].tieBreakApplied).toBe("interview");
+    });
+
+    it("entrevista null cuenta como 0: sin entrevista se queda detrás", () => {
+        const withInterview = entry(scores(3, 3, 3, 3, 3), 0.5, 1);
+        const withoutInterview = entry(scores(3, 3, 3, 3, 3), 0.9, null);
+
+        const ranked = rankEntries([withoutInterview, withInterview]);
+        expect(ranked[0].interviewScore).toBe(1);
+        expect(ranked[1].interviewScore).toBeNull();
+        expect(ranked[0].tieBreakApplied).toBe("interview");
+    });
+
+    it("nivel 7 — confianza: scores y entrevista idénticos, decide la mayor confianza", () => {
         const a = entry(scores(3, 3, 3, 3, 3), 0.9);
         const b = entry(scores(3, 3, 3, 3, 3), 0.4);
 
@@ -185,7 +228,7 @@ describe("compareCandidates y rankEntries: desempates de §15", () => {
         expect(ranked[0].tieBreakApplied).toBe("confidence");
     });
 
-    it("empate total (incluida confianza) → needsManualReview en ambos", () => {
+    it("empate total (incluidas entrevista y confianza) → needsManualReview en ambos", () => {
         const a = entry(scores(3, 3, 3, 3, 3), 0.5);
         const b = entry(scores(3, 3, 3, 3, 3), 0.5);
 

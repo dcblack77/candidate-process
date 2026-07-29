@@ -3,7 +3,7 @@ import { Database } from "../src/db/database";
 import { newId } from "../src/shared/ids";
 import { createTestDb } from "./helpers";
 
-describe("esquema 001_init (sobre :memory:)", () => {
+describe("esquema (001_init + 002_interview_answers, sobre :memory:)", () => {
     let db: Database;
 
     beforeEach(() => {
@@ -112,6 +112,50 @@ describe("esquema 001_init (sobre :memory:)", () => {
                     )
                     .run(newId(), candidateId, "carisma", "velocidad", "¿...?"),
             ).toThrow(/CHECK/i);
+        });
+
+        describe("respuesta del candidato (002_interview_answers)", () => {
+            function insertQuestion(answerScore: number | null): void {
+                const processId = insertProcess("closed");
+                const candidateId = insertCandidate(processId);
+                db.prepare(
+                    `INSERT INTO interview_question
+                         (id, candidate_id, criterion, dimension, question, answer_score)
+                     VALUES (?, ?, 'adaptability', 'velocidad', '¿...?', ?)`,
+                ).run(newId(), candidateId, answerScore);
+            }
+
+            it("acepta notas de respuesta dentro de 1-10 y NULL", () => {
+                expect(() => insertQuestion(1)).not.toThrow();
+                expect(() => insertQuestion(10)).not.toThrow();
+                expect(() => insertQuestion(null)).not.toThrow();
+            });
+
+            it("rechaza notas de respuesta fuera de 1-10 (CHECK del ALTER TABLE)", () => {
+                expect(() => insertQuestion(0)).toThrow(/CHECK/i);
+                expect(() => insertQuestion(11)).toThrow(/CHECK/i);
+            });
+
+            it("las columnas de respuesta nacen a NULL en las preguntas existentes", () => {
+                const processId = insertProcess("active");
+                const candidateId = insertCandidate(processId);
+                const id = newId();
+                db.prepare(
+                    `INSERT INTO interview_question (id, candidate_id, criterion, dimension, question)
+                     VALUES (?, ?, 'stack', 'velocidad', '¿...?')`,
+                ).run(id, candidateId);
+
+                const row = db
+                    .prepare(
+                        "SELECT answer_score, answer_notes, answered_at FROM interview_question WHERE id = ?",
+                    )
+                    .get(id);
+                expect(row).toEqual({
+                    answer_score: null,
+                    answer_notes: null,
+                    answered_at: null,
+                });
+            });
         });
     });
 });

@@ -20,8 +20,13 @@ export const WEIGHTS: Record<Criterion, number> = {
 
 /**
  * Orden de desempate (§15): adaptabilidad → fundamentos → producción →
- * profundidad → stack → confianza. Si tras confianza persiste el empate,
- * el ranking marca `needsManualReview` (revisión manual).
+ * profundidad → stack → ENTREVISTA → confianza. Si tras confianza persiste
+ * el empate, el ranking marca `needsManualReview` (revisión manual).
+ *
+ * `interview` (nota global de las respuestas de entrevista, 1-10) se inserta
+ * entre `stack` y `confidence`: es evidencia observada directamente por el
+ * evaluador y, por tanto, más fuerte que la confianza del análisis del CV,
+ * pero no altera la fórmula del score final (§06).
  */
 export const TIE_BREAK_ORDER = [
     "adaptability",
@@ -29,6 +34,7 @@ export const TIE_BREAK_ORDER = [
     "production",
     "depth",
     "stack",
+    "interview",
     "confidence",
 ] as const;
 
@@ -54,15 +60,30 @@ export function computeFinalScore(scores: CriterionScores): number {
 export interface RankableEntry {
     finalScore: number;
     scores: CriterionScores;
+    /**
+     * Nota global de entrevista 1-10 (ver scoring/interview-score.ts); null
+     * si el candidato no tiene ninguna respuesta puntuada.
+     *
+     * DECISIÓN: null cuenta como 0 en este nivel de desempate, es decir, un
+     * candidato SIN entrevista puntuada queda por detrás de uno que sí la
+     * tiene. Es deliberado: en un empate del score de CV hay evidencia real
+     * a favor de quien ya fue entrevistado y evaluado, y ninguna a favor de
+     * quien no lo fue. El score final (§06) no se ve afectado.
+     */
+    interviewScore: number | null;
     /** Confianza 0-1 del análisis; null cuenta como 0 en el desempate. */
     confidence: number | null;
 }
 
 /** Valor de un nivel de desempate para una entrada. */
 function tieBreakValue(entry: RankableEntry, level: TieBreakLevel): number {
-    return level === "confidence"
-        ? (entry.confidence ?? 0)
-        : entry.scores[level];
+    if (level === "confidence") {
+        return entry.confidence ?? 0;
+    }
+    if (level === "interview") {
+        return entry.interviewScore ?? 0;
+    }
+    return entry.scores[level];
 }
 
 /**

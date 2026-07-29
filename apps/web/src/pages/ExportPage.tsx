@@ -20,6 +20,14 @@ const INCLUDE_LABELS: Record<keyof ExportInclude, string> = {
     extractedText: "Texto extraído del CV",
 };
 
+/** Aclaración de qué cubre exactamente cada sección cuando no es obvio. */
+const INCLUDE_HINTS: Partial<Record<keyof ExportInclude, string>> = {
+    privateNotes:
+        "notas privadas del evaluador y notas de las respuestas de entrevista",
+    questions:
+        "las notas numéricas de las respuestas (1-10) salen siempre que se incluyan las preguntas",
+};
+
 /** Secciones sensibles: desmarcadas por defecto y con aviso al marcarlas. */
 const SENSITIVE_KEYS: ReadonlyArray<keyof ExportInclude> = [
     "privateNotes",
@@ -97,6 +105,12 @@ export function ExportPage() {
                                     {" "}
                                     (información sensible, excluida por
                                     defecto)
+                                </span>
+                            )}
+                            {INCLUDE_HINTS[key] && (
+                                <span className="muted small">
+                                    {" "}
+                                    — incluye {INCLUDE_HINTS[key]}
                                 </span>
                             )}
                         </label>

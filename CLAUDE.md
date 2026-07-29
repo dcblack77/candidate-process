@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pnpm install                 # instalar (workspace pnpm: apps/api + apps/web)
 pnpm dev                     # API (127.0.0.1:3010) + UI (127.0.0.1:5173) en paralelo
 pnpm dev:api / pnpm dev:web  # cada app por separado
-pnpm test                    # suite completa; api: 190 tests, web: 16
+pnpm test                    # suite completa; api: 235 tests, web: 16
 pnpm --filter api test -- <patrón>   # un spec concreto (p. ej. -- weights, -- cv)
 pnpm build                   # tsc estricto + bundle de web
 pnpm --filter api lint       # eslint del backend
@@ -68,7 +68,9 @@ Cinco criterios, cada uno puntuado de 1 a 5:
 score_final = adaptabilidad*0.30 + fundamentos*0.25 + profundidad*0.20 + produccion*0.15 + stack*0.10
 ```
 
-Desempate, en orden: adaptabilidad → fundamentos → producción → profundidad → stack → confianza → revisión manual. Los pesos y el orden de desempate viven en un único sitio del código; no duplicarlos.
+Desempate, en orden: adaptabilidad → fundamentos → producción → profundidad → stack → **entrevista** → confianza → revisión manual. Los pesos y el orden de desempate viven en un único sitio del código; no duplicarlos.
+
+La **nota de entrevista** (§15) es independiente del score final: cada `interview_question` admite `answer_score` (entero 1-10) y `answer_notes` (texto privado). `scoring/interview-score.ts` promedia por criterio y agrega con los pesos de `weights.ts` **renormalizados** sobre los criterios con respuestas; sin respuestas puntuadas vale `null` y cuenta como 0 al desempatar. Las notas numéricas salen en el export; el texto de `answer_notes` solo con `include.privateNotes`.
 
 ## Arquitectura prevista
 

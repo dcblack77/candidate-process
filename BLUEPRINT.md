@@ -228,6 +228,7 @@ DELETE /candidates/:id
 POST   /candidates/:id/cv/extract
 POST   /candidates/:id/analyze
 POST   /candidates/:id/questions
+PATCH  /candidates/:id/questions/:questionId/answer
 PATCH  /candidates/:id/score
 POST   /candidates/:id/notes
 
@@ -322,6 +323,9 @@ positive_signals
 warning_signals
 scoring_guidance
 created_at
+answer_score    # nota de la respuesta del candidato, entero 1-10 (null si no se puntuó)
+answer_notes    # notas privadas de lo que respondió (dato sensible: fuera del export por defecto)
+answered_at     # ISO 8601 UTC del último registro de respuesta (null si no hay respuesta)
 ```
 
 ### AppEvent
@@ -425,6 +429,7 @@ El ranking debe mostrar:
 - Score por criterio.
 - Evidencia resumida.
 - Confianza del análisis.
+- Nota de entrevista (global y por criterio).
 - Dudas pendientes.
 - Preguntas clave.
 
@@ -435,8 +440,16 @@ Reglas de desempate:
 3. Mayor producción.
 4. Mayor profundidad.
 5. Mayor stack.
-6. Mayor confianza.
-7. Revisión manual.
+6. Mayor nota de entrevista.
+7. Mayor confianza.
+8. Revisión manual.
+
+Nota de entrevista: media de las notas (1-10) de las respuestas de cada
+criterio, agregadas con los pesos de §06 renormalizados sobre los criterios
+que tengan al menos una respuesta puntuada. Un candidato sin ninguna
+respuesta puntuada cuenta como 0 en ese nivel (hay evidencia observada a
+favor de quien sí fue entrevistado). La entrevista NO altera la fórmula del
+score final de §06: solo desempata.
 
 ## 16. Restricciones, Reglas Y Límites De Uso
 
@@ -565,12 +578,14 @@ Incluye:
 - Fortalezas.
 - Riesgos.
 - Preguntas recomendadas.
+- Nota de entrevista (global, por criterio y por pregunta): es puntuación, no
+  texto sensible.
 
 No incluye por defecto:
 
 - CV original.
 - Texto completo extraído.
-- Notas privadas completas.
+- Notas privadas completas (incluido el texto de las respuestas de entrevista).
 - Datos personales irrelevantes.
 - Prompts.
 - Información sensible innecesaria.

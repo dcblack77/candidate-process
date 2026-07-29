@@ -95,6 +95,8 @@ export interface CandidateDetailDTO extends CandidateListItemDTO {
     cvEvidence: unknown;
     score: CandidateScoreDTO | null;
     questions: InterviewQuestionDTO[];
+    /** Agregados de las notas de entrevista (§15). Siempre presente. */
+    interview: InterviewSummaryDTO;
     updatedAt: string;
 }
 
@@ -190,6 +192,12 @@ export interface InterviewQuestionDTO {
     warningSignals: string[];
     scoringGuidance: string | null;
     createdAt: string;
+    /** Nota de la respuesta (entero 1-10); null si aún no está puntuada. */
+    answerScore: number | null;
+    /** Notas privadas sobre la respuesta (dato sensible §17); null si no hay. */
+    answerNotes: string | null;
+    /** ISO 8601 del último registro de respuesta; null si no hay respuesta. */
+    answeredAt: string | null;
 }
 
 export interface GenerateQuestionsResponseDTO {
@@ -199,9 +207,72 @@ export interface GenerateQuestionsResponseDTO {
     questionsLimit: number;
 }
 
+// ── Entrevista (§15) ───────────────────────────────────────────────────────
+
+/** Nota mínima de la respuesta a una pregunta de entrevista. */
+export const MIN_ANSWER_SCORE = 1;
+
+/** Nota máxima (10 = la respuesta que más se ajusta a lo esperado). */
+export const MAX_ANSWER_SCORE = 10;
+
+/** Longitud máxima de las notas de una respuesta (questions.dto.ts). */
+export const MAX_ANSWER_NOTES_LENGTH = 10_000;
+
+/** Media de entrevista de un criterio y cuántas respuestas la sostienen. */
+export interface CriterionInterviewDTO {
+    /** Media 1-10 redondeada a 1 decimal. */
+    average: number;
+    /** Número de respuestas puntuadas de ese criterio. */
+    answered: number;
+}
+
+/**
+ * Agregados de entrevista de un candidato (scoring/interview-score.ts).
+ * Siempre presentes: sin respuestas puntuadas `overall` es null y todos los
+ * criterios de `byCriterion` son null.
+ */
+export interface InterviewSummaryDTO {
+    byCriterion: Record<Criterion, CriterionInterviewDTO | null>;
+    /** Global ponderado y renormalizado (1-10, 1 decimal); null si no hay notas. */
+    overall: number | null;
+    answeredCount: number;
+    totalCount: number;
+}
+
+/**
+ * Entrada de PATCH /candidates/:id/questions/:questionId/answer.
+ * `score: null` borra la nota; `notes: ""` vacía el texto; un campo ausente
+ * se deja como estaba. Debe llevar al menos uno de los dos.
+ */
+export interface AnswerQuestionBody {
+    score?: number | null;
+    notes?: string;
+}
+
+/** Respuesta de PATCH /candidates/:id/questions/:questionId/answer. */
+export interface AnswerQuestionResponseDTO {
+    candidateId: string;
+    question: InterviewQuestionDTO;
+    /** Agregados RECALCULADOS tras la edición: la UI los aplica sin recargar. */
+    interview: InterviewSummaryDTO;
+}
+
+/** Agregados vacíos: fallback defensivo si una respuesta llega incompleta. */
+export function emptyInterviewSummary(): InterviewSummaryDTO {
+    const byCriterion = {} as Record<Criterion, CriterionInterviewDTO | null>;
+    for (const criterion of CRITERIA) {
+        byCriterion[criterion] = null;
+    }
+    return { byCriterion, overall: null, answeredCount: 0, totalCount: 0 };
+}
+
 // ── Ranking ────────────────────────────────────────────────────────────────
 
-export type TieBreakLevel = Criterion | "confidence";
+/**
+ * Orden de desempate (§15, scoring/weights.ts): adaptabilidad → fundamentos →
+ * producción → profundidad → stack → entrevista → confianza.
+ */
+export type TieBreakLevel = Criterion | "interview" | "confidence";
 
 export interface RankingEntryDTO {
     position: number;
@@ -213,6 +284,13 @@ export interface RankingEntryDTO {
     evidenceSummary: Partial<Record<Criterion, string>>;
     pendingDoubts: string[];
     keyQuestions: string[];
+    /**
+     * Nota global de entrevista (1-10, 1 decimal); null sin respuestas
+     * puntuadas. NO entra en finalScore: solo desempata (§15).
+     */
+    interviewScore: number | null;
+    /** Media de entrevista por criterio; null en los criterios sin respuestas. */
+    interviewByCriterion: Record<Criterion, CriterionInterviewDTO | null>;
     tieBreakApplied: TieBreakLevel | null;
     needsManualReview: boolean;
 }

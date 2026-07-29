@@ -7,18 +7,28 @@ import {
     CRITERION_LABELS,
     RankingEntryDTO,
     RankingResponseDTO,
+    TieBreakLevel,
 } from "../api/types";
 import { ErrorAlert, Spinner, StatusBadge } from "../components/ui";
 
-/** Etiqueta en español del nivel de desempate aplicado. */
-const TIE_BREAK_LABELS: Record<string, string> = {
+/**
+ * Etiqueta en español del nivel de desempate aplicado (§15). El orden real
+ * lo fija el backend en scoring/weights.ts: adaptabilidad → fundamentos →
+ * producción → profundidad → stack → entrevista → confianza.
+ */
+const TIE_BREAK_LABELS: Record<TieBreakLevel, string> = {
     adaptability: "Desempate: adaptabilidad",
     fundamentals: "Desempate: fundamentos",
     production: "Desempate: producción",
     depth: "Desempate: profundidad",
     stack: "Desempate: stack",
+    interview: "Desempatado por entrevista",
     confidence: "Desempate: confianza",
 };
+
+/** Número de columnas de la tabla: usado por el colSpan de la fila expandible. */
+// #, candidato, score final, los criterios, entrevista y confianza.
+const RANKING_COLUMN_COUNT = 5 + CRITERIA.length;
 
 /**
  * Pantalla Comparativa (§21/§15): tabla por criterios con pesos visibles,
@@ -82,6 +92,12 @@ export function RankingPage() {
                                         </span>
                                     </th>
                                 ))}
+                                <th>
+                                    Entrevista{" "}
+                                    <span className="muted">
+                                        (escala 1-10, fuera del score final)
+                                    </span>
+                                </th>
                                 <th>Confianza</th>
                             </tr>
                         </thead>
@@ -125,8 +141,15 @@ export function RankingPage() {
 }
 
 function RankingRow({ entry }: { entry: RankingEntryDTO }) {
+    // Solo los criterios con alguna respuesta puntuada (el resto llega null).
+    const interviewRows = CRITERIA.flatMap((criterion) => {
+        const average = entry.interviewByCriterion?.[criterion];
+        return average ? [{ criterion, average }] : [];
+    });
     const hasDetails =
-        entry.pendingDoubts.length > 0 || entry.keyQuestions.length > 0;
+        entry.pendingDoubts.length > 0 ||
+        entry.keyQuestions.length > 0 ||
+        interviewRows.length > 0;
     return (
         <>
             <tr>
@@ -153,6 +176,11 @@ function RankingRow({ entry }: { entry: RankingEntryDTO }) {
                 {CRITERIA.map((criterion) => (
                     <td key={criterion}>{entry.scores[criterion]}</td>
                 ))}
+                <td className="interview-cell">
+                    {entry.interviewScore == null
+                        ? "—"
+                        : `${entry.interviewScore.toFixed(1)}/10`}
+                </td>
                 <td>
                     {entry.confidence == null
                         ? "—"
@@ -161,11 +189,36 @@ function RankingRow({ entry }: { entry: RankingEntryDTO }) {
             </tr>
             {hasDetails && (
                 <tr>
-                    <td colSpan={9} style={{ borderBottom: "none" }}>
+                    <td
+                        colSpan={RANKING_COLUMN_COUNT}
+                        style={{ borderBottom: "none" }}
+                    >
                         <details>
                             <summary className="small muted">
-                                Dudas pendientes y preguntas clave
+                                Dudas pendientes, preguntas clave y entrevista
                             </summary>
+                            {interviewRows.length > 0 && (
+                                <>
+                                    <h3 className="small">
+                                        Entrevista por criterio (1-10)
+                                    </h3>
+                                    <ul className="small">
+                                        {interviewRows.map(
+                                            ({ criterion, average }) => (
+                                                <li key={criterion}>
+                                                    {CRITERION_LABELS[criterion]}
+                                                    : {average.average.toFixed(1)}
+                                                    /10 ({average.answered}{" "}
+                                                    {average.answered === 1
+                                                        ? "respuesta"
+                                                        : "respuestas"}
+                                                    )
+                                                </li>
+                                            ),
+                                        )}
+                                    </ul>
+                                </>
+                            )}
                             {entry.pendingDoubts.length > 0 && (
                                 <>
                                     <h3 className="small">Dudas pendientes</h3>

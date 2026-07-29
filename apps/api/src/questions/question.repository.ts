@@ -6,6 +6,9 @@ import { newId } from "../shared/ids";
 /**
  * Repositorio de interview_question (BLUEPRINT §12 y §14). Las señales
  * positive_signals/warning_signals se guardan como JSON (listas de strings).
+ *
+ * Desde 002_interview_answers también guarda la RESPUESTA del candidato:
+ * nota 1-10 (answer_score) y notas privadas de texto (answer_notes).
  */
 
 export interface InterviewQuestionRow {
@@ -20,7 +23,16 @@ export interface InterviewQuestionRow {
     warning_signals: string | null;
     scoring_guidance: string | null;
     created_at: string;
+    /** Nota de la respuesta, entero 1-10; null si no está puntuada. */
+    answer_score: number | null;
+    /** Notas privadas sobre lo que respondió (dato sensible §17). */
+    answer_notes: string | null;
+    /** ISO 8601 UTC del último registro de respuesta; null si no hay respuesta. */
+    answered_at: string | null;
 }
+
+/** Refresco de answered_at en UTC ISO 8601, coherente con los DEFAULT del esquema. */
+const NOW_UTC = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
 @injectable()
 export class QuestionRepository {
@@ -44,6 +56,56 @@ export class QuestionRepository {
                  ORDER BY rowid`,
             )
             .all(candidateId) as InterviewQuestionRow[];
+    }
+
+    /**
+     * Busca una pregunta EXIGIENDO que pertenezca al candidato indicado. Si
+     * el id existe pero es de otro candidato devuelve undefined (el caso de
+     * uso responde 404 sin revelar que la pregunta existe).
+     */
+    findByIdForCandidate(
+        questionId: string,
+        candidateId: string,
+    ): InterviewQuestionRow | undefined {
+        return this.db
+            .prepare(
+                "SELECT * FROM interview_question WHERE id = ? AND candidate_id = ?",
+            )
+            .get(questionId, candidateId) as InterviewQuestionRow | undefined;
+    }
+
+    /**
+     * Fija la respuesta de una pregunta (nota y/o notas de texto ya
+     * fusionadas por el caso de uso) y actualiza answered_at en UTC.
+     * Si la pregunta queda sin nota Y sin texto, answered_at vuelve a NULL:
+     * deja de estar respondida.
+     */
+    setAnswer(
+        questionId: string,
+        answerScore: number | null,
+        answerNotes: string | null,
+    ): InterviewQuestionRow {
+        this.db
+            .prepare(
+                `UPDATE interview_question
+                 SET answer_score = ?,
+                     answer_notes = ?,
+                     answered_at = CASE
+                         WHEN ? IS NULL AND ? IS NULL THEN NULL
+                         ELSE ${NOW_UTC}
+                     END
+                 WHERE id = ?`,
+            )
+            .run(
+                answerScore,
+                answerNotes,
+                answerScore,
+                answerNotes,
+                questionId,
+            );
+        return this.db
+            .prepare("SELECT * FROM interview_question WHERE id = ?")
+            .get(questionId) as InterviewQuestionRow;
     }
 
     /** Inserta el lote de preguntas generadas y devuelve las filas creadas. */

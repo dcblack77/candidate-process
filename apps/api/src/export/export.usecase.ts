@@ -6,6 +6,8 @@ import {
     requireActiveProcess,
 } from "../process/process.repository";
 import { QuestionRepository } from "../questions/question.repository";
+import { interviewScoreOf } from "../questions/questions.dto";
+import { InterviewScore } from "../scoring/interview-score";
 import {
     CandidateScoreRow,
     ScoreRepository,
@@ -29,6 +31,7 @@ import {
     buildExportFilename,
     buildExportMarkdown,
     ExportCandidateData,
+    ExportQuestionData,
 } from "./markdown-builder";
 
 /** Máximo de fortalezas (evidencias explícitas) por candidato en el export. */
@@ -79,6 +82,9 @@ export class ExportUseCase {
             summary: string | null;
             scores: CriterionScores;
             finalScore: number;
+            questions: ExportQuestionData[];
+            interview: InterviewScore;
+            interviewScore: number | null;
             confidence: number | null;
         }> = [];
 
@@ -97,6 +103,8 @@ export class ExportUseCase {
                     score[criterion] as number,
                 ]),
             ) as CriterionScores;
+            const questionRows = this.questions.listByCandidate(candidate.id);
+            const interview = interviewScoreOf(questionRows);
             rankable.push({
                 candidateId: candidate.id,
                 name: candidate.name,
@@ -105,6 +113,15 @@ export class ExportUseCase {
                 scores: criterionScores,
                 finalScore:
                     score.final_score ?? computeFinalScore(criterionScores),
+                questions: questionRows.map((question) => ({
+                    question: question.question,
+                    answerScore: question.answer_score,
+                    // Texto privado: el builder solo lo escribe con
+                    // include.privateNotes=true.
+                    answerNotes: question.answer_notes,
+                })),
+                interview,
+                interviewScore: interview.overall,
                 confidence: score.confidence,
             });
         }
@@ -120,9 +137,8 @@ export class ExportUseCase {
                 summary: entry.summary,
                 strengths: strengthsOf(entry.score, entry.scores),
                 risks: risksOf(entry.score),
-                questions: this.questions
-                    .listByCandidate(entry.candidateId)
-                    .map((question) => question.question),
+                questions: entry.questions,
+                interview: entry.interview,
                 manualNotes: entry.score.manual_notes,
             }),
         );
