@@ -14,8 +14,19 @@ La especificación completa vive en [BLUEPRINT.md](BLUEPRINT.md). El sistema **p
 ```bash
 pnpm install
 cp .env.example .env    # opcional: los defaults ya son seguros
-pnpm dev                # API en http://127.0.0.1:3010 + UI en http://127.0.0.1:5173
+pnpm dev                # API en http://127.0.0.1:3010 + UI en http://0.0.0.0:5173
 ```
+
+## Acceso desde la red local
+
+La UI escucha por defecto en todas las interfaces: desde otro equipo de la LAN abre `http://<ip-de-esta-máquina>:5173`. La API **no** está expuesta — sigue atada a 127.0.0.1 y solo es alcanzable a través del proxy de Vite, que corre en la máquina servidora.
+
+- **Sin autenticación (§08)**: cualquier equipo con acceso al puerto 5173 puede usar la aplicación completa (ver CVs resumidos, notas, exportar, borrar). Limita el acceso a una red de confianza o al firewall.
+- Si el firewall bloquea el puerto (firewalld en esta máquina):
+  ```bash
+  sudo firewall-cmd --add-port=5173/tcp --permanent && sudo firewall-cmd --reload
+  ```
+- Para volver al modo solo-local: `WEB_HOST=127.0.0.1` en el `.env`.
 
 Scripts útiles:
 
@@ -46,7 +57,7 @@ scripts/    # smoke.sh
 
 - El **CV original nunca se persiste**: upload en memoria, extracción de texto, resumen con el modelo y descarte del buffer. Solo se guarda el resumen estructurado.
 - Todo el procesamiento de IA es **local**; ningún dato sale de la máquina.
-- API y UI escuchan **solo en 127.0.0.1** (verificación activa en el arranque).
+- La API escucha **solo en 127.0.0.1** (verificación activa en el arranque). La UI se expone a la LAN por decisión explícita (ver "Acceso desde la red local"); todo el tráfico hacia la API pasa por el proxy local de Vite.
 - Los exports **excluyen por defecto** las notas privadas; incluirlas exige un flag explícito y queda auditado.
 - Nada de contenido de CVs, resúmenes o notas en logs ni en mensajes de error.
 - Al cerrar el proceso, los datos se **borran en cascada** previa confirmación explícita.
