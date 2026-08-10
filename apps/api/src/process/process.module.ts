@@ -2,10 +2,12 @@ import { CreateModule, interfaces } from "@expressots/core";
 import {
     CloseProcessUseCase,
     DeleteProcessUseCase,
+    ReopenProcessUseCase,
 } from "./close-process.usecase";
 import { CreateProcessUseCase } from "./create-process.usecase";
-import { GetProcessUseCase } from "./get-process.usecase";
+import { GetProcessUseCase, ListProcessesUseCase } from "./get-process.usecase";
 import { ProcessController } from "./process.controller";
+import { SelectProcessUseCase } from "./select-process.usecase";
 import { UpdateProcessUseCase } from "./update-process.usecase";
 import { ProcessRepository } from "./process.repository";
 
@@ -18,9 +20,12 @@ export const ProcessModule = CreateModule(
     (bind: interfaces.Bind) => {
         bind(ProcessRepository).toSelf().inSingletonScope();
         bind(GetProcessUseCase).toSelf().inSingletonScope();
+        bind(ListProcessesUseCase).toSelf().inSingletonScope();
         bind(CreateProcessUseCase).toSelf().inSingletonScope();
         bind(UpdateProcessUseCase).toSelf().inSingletonScope();
+        bind(SelectProcessUseCase).toSelf().inSingletonScope();
         bind(CloseProcessUseCase).toSelf().inSingletonScope();
+        bind(ReopenProcessUseCase).toSelf().inSingletonScope();
         bind(DeleteProcessUseCase).toSelf().inSingletonScope();
     },
 );

@@ -6,7 +6,7 @@ import {
 } from "../candidates/candidate.repository";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireCurrentProcess,
 } from "../process/process.repository";
 import {
     InterviewQuestionRow,
@@ -46,7 +46,7 @@ const KEY_QUESTIONS_COUNT = 3;
  * activo con puntuación completa, ordenados con rankEntries por el score
  * final COMBINADO 30% CV / 70% entrevista (weights.ts es la única fuente de
  * pesos y desempates). Los candidatos sin puntuación se listan aparte en
- * `unscored`. Sin proceso activo → 404.
+ * `unscored`. Sin proceso seleccionado → 404.
  */
 @injectable()
 export class GetRankingUseCase {
@@ -62,7 +62,7 @@ export class GetRankingUseCase {
     ) {}
 
     execute(): RankingResponseDTO {
-        const active = requireActiveProcess(this.processes);
+        const selected = requireCurrentProcess(this.processes);
         this.rateLimiter.check(RANKING_RATE_KEY, RATE_LIMITS_PER_HOUR.RANKING);
 
         const unscored: UnscoredCandidateDTO[] = [];
@@ -77,7 +77,7 @@ export class GetRankingUseCase {
             confidence: number | null;
         }> = [];
 
-        for (const candidate of this.candidates.listActive(active.id)) {
+        for (const candidate of this.candidates.listActive(selected.id)) {
             const score = this.scores.findByCandidate(candidate.id);
             if (
                 !score ||

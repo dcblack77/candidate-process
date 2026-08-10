@@ -9,6 +9,7 @@ import { CvModule } from "./cv/cv.module";
 import { loadEnv } from "./env";
 import { ExportModule } from "./export/export.module";
 import { HealthModule } from "./health/health.module";
+import { InterviewModule } from "./interview/interview.module";
 import { ProcessModule } from "./process/process.module";
 import { QuestionsModule } from "./questions/questions.module";
 import { RankingModule } from "./ranking/ranking.module";
@@ -46,6 +47,7 @@ export class App extends AppExpress {
             CvModule,
             AiModule,
             ScoringModule,
+            InterviewModule,
             QuestionsModule,
             RankingModule,
             ExportModule,

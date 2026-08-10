@@ -17,6 +17,9 @@ import {
     InterviewQuestionDTO,
     InterviewSummaryDTO,
     isAssessedVerdict,
+    COVERAGE_CLASSES,
+    COVERAGE_LABELS,
+    ProposalDTO,
     MAX_ANSWER_NOTES_LENGTH,
     MAX_ANSWER_SCORE,
     MIN_ANSWER_SCORE,
@@ -25,6 +28,8 @@ import {
     VERDICT_LABELS,
 } from "../api/types";
 import { EvidenceList } from "../components/EvidenceList";
+import { InterviewAnalysisPanel } from "../interview/InterviewAnalysisPanel";
+import { ProposalCard } from "../interview/ProposalCard";
 import {
     ErrorAlert,
     formatDate,
@@ -227,8 +232,10 @@ export function CandidateDetailPage() {
                 // Fallback defensivo: el backend siempre envía `interview`,
                 // pero la UI no debe romperse si llega una respuesta parcial.
                 interview={candidate.interview ?? emptyInterviewSummary()}
+                proposals={candidate.proposals ?? []}
                 onGenerated={load}
                 onAnswered={applyAnswer}
+                onReload={load}
             />
             <NotesSection
                 candidateId={id}
@@ -405,9 +412,13 @@ function ScoreEditor({
                 continue;
             }
             const parsed = Number(raw);
-            if (!Number.isInteger(parsed) || parsed < 1 || parsed > 5) {
+            if (
+                !Number.isInteger(parsed * 2) ||
+                parsed < 1 ||
+                parsed > 5
+            ) {
                 setFormError(
-                    `${CRITERION_LABELS[criterion]}: la puntuación debe ser un entero entre 1 y 5.`,
+                    `${CRITERION_LABELS[criterion]}: la puntuación debe estar entre 1 y 5 en pasos de 0,5.`,
                 );
                 return;
             }
@@ -465,7 +476,7 @@ function ScoreEditor({
                                 type="number"
                                 min={1}
                                 max={5}
-                                step={1}
+                                step={0.5}
                                 value={values[criterion]}
                                 onChange={(e) =>
                                     setValues((prev) => ({
@@ -581,15 +592,25 @@ function QuestionsSection({
     candidateId,
     questions,
     interview,
+    proposals,
     onGenerated,
     onAnswered,
+    onReload,
 }: {
     candidateId: string;
     questions: InterviewQuestionDTO[];
     interview: InterviewSummaryDTO;
+    /** Propuestas vivas del análisis de audio (§24). */
+    proposals: ProposalDTO[];
     onGenerated: () => Promise<void>;
     onAnswered: (updated: AnswerQuestionResponseDTO) => void;
+    /** Recarga el candidato tras resolver una propuesta. */
+    onReload: () => Promise<void>;
 }) {
+    // Como mucho hay una propuesta viva por pregunta (lo garantiza el backend).
+    const proposalByQuestion = new Map(
+        proposals.map((proposal) => [proposal.questionId, proposal]),
+    );
     const [count, setCount] = useState("8");
     const [generating, setGenerating] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -616,6 +637,12 @@ function QuestionsSection({
         <section className="card">
             <h2>Preguntas de entrevista ({questions.length})</h2>
             <InterviewSummaryPanel interview={interview} />
+            {questions.length > 0 && (
+                <InterviewAnalysisPanel
+                    candidateId={candidateId}
+                    onFinished={onReload}
+                />
+            )}
             {questions.length === 0 && (
                 <p className="muted">Aún no se han generado preguntas.</p>
             )}
@@ -624,7 +651,9 @@ function QuestionsSection({
                     key={question.id}
                     candidateId={candidateId}
                     question={question}
+                    proposal={proposalByQuestion.get(question.id)}
                     onAnswered={onAnswered}
+                    onReload={onReload}
                 />
             ))}
             <div className="field-inline" style={{ marginTop: "0.75rem" }}>
@@ -856,11 +885,15 @@ function AnswerEditor({
 function QuestionBlock({
     candidateId,
     question,
+    proposal,
     onAnswered,
+    onReload,
 }: {
     candidateId: string;
     question: InterviewQuestionDTO;
+    proposal?: ProposalDTO;
     onAnswered: (updated: AnswerQuestionResponseDTO) => void;
+    onReload: () => Promise<void>;
 }) {
     return (
         <details className="question">
@@ -873,8 +906,34 @@ function QuestionBlock({
                             ` · ${formatDate(question.answeredAt)}`}
                     </span>
                 )}
+                {proposal && (
+                    <span
+                        className={`badge ${COVERAGE_CLASSES[proposal.coverage]}`}
+                    >
+                        Propuesta: {COVERAGE_LABELS[proposal.coverage]}
+                        {proposal.proposedScore !== null &&
+                            ` · ${proposal.proposedScore}/10`}
+                    </span>
+                )}
             </summary>
             <div className="question-body">
+                {proposal && (
+                    <ProposalCard
+                        candidateId={candidateId}
+                        proposal={proposal}
+                        onApply={async (score, notes) => {
+                            // El camino de siempre: la nota real la escribe
+                            // este PATCH, no el dominio de propuestas.
+                            const updated = await api.answerQuestion(
+                                candidateId,
+                                question.id,
+                                { score, ...(notes ? { notes } : {}) },
+                            );
+                            onAnswered(updated);
+                        }}
+                        onResolved={onReload}
+                    />
+                )}
                 <AnswerEditor
                     candidateId={candidateId}
                     question={question}
@@ -885,12 +944,10 @@ function QuestionBlock({
                     <dd>{question.dimension}</dd>
                     <dt>Criterio</dt>
                     <dd>{question.criterion}</dd>
-                    {question.validates && (
-                        <>
-                            <dt>Qué valida</dt>
-                            <dd>{question.validates}</dd>
-                        </>
-                    )}
+                    {/* "Qué valida" (question.validates) ya no se pinta: repetía
+                        lo que dicen la pregunta, el criterio y la dimensión
+                        (decisión del 2026-08-07). El campo sigue en la DB y en
+                        el DTO con el texto de las preguntas antiguas. */}
                     {question.idealAnswer && (
                         <>
                             <dt>Respuesta ideal</dt>

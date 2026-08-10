@@ -1,7 +1,7 @@
 import { inject, injectable } from "@expressots/core";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireWritableProcess,
 } from "../process/process.repository";
 import { AuditRepository } from "../shared/audit";
 import { AppError } from "../shared/errors";
@@ -25,16 +25,16 @@ export class DeleteCandidateUseCase {
 
     execute(id: unknown): CandidateDeleteResponseDTO {
         assertValidId(id);
-        const active = requireActiveProcess(this.processes);
+        const selected = requireWritableProcess(this.processes);
 
-        const row = this.candidates.findActiveInProcess(id, active.id);
+        const row = this.candidates.findActiveInProcess(id, selected.id);
         if (!row) {
             throw new AppError("NOT_FOUND");
         }
 
         this.candidates.softDelete(row.id);
         this.audit.logEvent("candidate.deleted", "candidate", row.id, {
-            processId: active.id,
+            processId: selected.id,
             softDelete: true,
         });
         return { id: row.id, deleted: true };

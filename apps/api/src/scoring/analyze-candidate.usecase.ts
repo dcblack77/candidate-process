@@ -1,5 +1,6 @@
 import { inject, injectable } from "@expressots/core";
 import { LlmClient } from "../ai/llm-client";
+import { NEUTRAL_ROLE_CONTEXT } from "../ai/role-context";
 import { CRITERIA } from "../ai/schemas/common";
 import {
     CriterionVerdict,
@@ -11,7 +12,7 @@ import {
 import { CandidateRepository } from "../candidates/candidate.repository";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireWritableProcess,
 } from "../process/process.repository";
 import { QuestionRepository } from "../questions/question.repository";
 import { interviewScoreOf } from "../questions/questions.dto";
@@ -40,9 +41,6 @@ export const ANALYZE_RATE_KEY = "analyze";
 
 /** Acción de auditoría cuyo conteo por candidato limita las regeneraciones. */
 export const ANALYZED_ACTION = "candidate.analyzed";
-
-/** Texto neutro cuando el proceso no tiene role_context. */
-const NEUTRAL_ROLE_CONTEXT = "(Sin contexto adicional del rol.)";
 
 /**
  * POST /candidates/:id/analyze (BLUEPRINT §05, §11, §13).
@@ -79,8 +77,8 @@ export class AnalyzeCandidateUseCase {
 
     async execute(id: unknown): Promise<AnalyzeResponseDTO> {
         assertValidId(id);
-        const active = requireActiveProcess(this.processes);
-        const candidate = this.candidates.findActiveInProcess(id, active.id);
+        const selected = requireWritableProcess(this.processes);
+        const candidate = this.candidates.findActiveInProcess(id, selected.id);
         if (!candidate) {
             throw new AppError("NOT_FOUND");
         }
@@ -127,8 +125,8 @@ export class AnalyzeCandidateUseCase {
                 promptName: SCORE_PROMPT,
                 variables: {
                     cv_summary_json: candidate.cv_summary,
-                    role_title: active.role_title,
-                    role_context: active.role_context ?? NEUTRAL_ROLE_CONTEXT,
+                    role_title: selected.role_title,
+                    role_context: selected.role_context ?? NEUTRAL_ROLE_CONTEXT,
                     interview_context: interviewContext.text,
                 },
                 schema: SCORE_CANDIDATE_JSON_SCHEMA,

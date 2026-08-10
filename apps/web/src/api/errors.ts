@@ -14,9 +14,11 @@ const MESSAGE_BY_CODE: Record<string, string> = {
     INVALID_INPUT: "Los datos enviados no son válidos. Revisa el formulario.",
     LLM_UNAVAILABLE:
         "El modelo local no está disponible. Comprueba que el servidor del modelo esté arrancado e inténtalo de nuevo.",
+    STT_UNAVAILABLE:
+        "El servicio local de transcripción no responde. Levántalo con `docker compose --profile voice up -d` en /opt/ai-server e inténtalo de nuevo.",
     FORBIDDEN: "No tienes permiso para realizar esta acción.",
-    ACTIVE_PROCESS_EXISTS:
-        "Ya existe un proceso activo. Ciérralo antes de crear otro.",
+    PROCESS_CLOSED:
+        "Este proceso está archivado: puedes consultarlo, pero no modificarlo. Reábrelo desde Inicio si necesitas seguir trabajando en él.",
     FILE_TOO_LARGE: "El archivo supera el tamaño máximo permitido (10 MB).",
     UNSUPPORTED_MEDIA_TYPE:
         "Formato de archivo no permitido. Sube un PDF, DOCX o TXT.",

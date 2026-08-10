@@ -21,6 +21,15 @@ import {
     startMockLlm,
 } from "./ai-helpers";
 import { createTestDb } from "./helpers";
+import {
+    GENERATE_QUESTIONS_JSON_SCHEMA,
+    generateQuestionsZodSchema,
+    MAX_IDEAL_ANSWER_LENGTH,
+    MAX_QUESTION_LENGTH,
+    MAX_SCORING_GUIDANCE_LENGTH,
+    MAX_SIGNAL_LENGTH,
+    MAX_SIGNALS,
+} from "../src/ai/schemas/generate-questions";
 
 /**
  * Integración de POST /candidates/:id/questions sobre la app real: supertest
@@ -50,7 +59,6 @@ function validQuestions(count: number) {
             question: `Pregunta personalizada número ${i + 1} sobre su transición real.`,
             dimension: DIMENSIONS[i % DIMENSIONS.length],
             criterion: CRITERIA[i % CRITERIA.length],
-            validates: "Si la transición fue real y con contribución.",
             ideal_answer: "Describe contexto, brechas, método y entregables.",
             positive_signals: ["Da fechas concretas", "Explica trade-offs"],
             warning_signals: ["Responde con generalidades"],
@@ -115,10 +123,10 @@ describe("POST /candidates/:id/questions", () => {
         };
     });
 
-    async function createProcess(): Promise<void> {
+    async function createProcess(roleContext?: string): Promise<void> {
         await request
             .post("/process")
-            .send({ roleTitle: "Backend Serverless" })
+            .send({ roleTitle: "Backend Serverless", roleContext })
             .expect(201);
     }
 
@@ -170,7 +178,7 @@ describe("POST /candidates/:id/questions", () => {
 
     describe("camino feliz", () => {
         it("201 con count por defecto 8: persiste con señales JSON y responde el bloque completo", async () => {
-            await createProcess();
+            await createProcess("Equipo de pagos, stack AWS y TypeScript.");
             const id = await createCandidate();
             seedAnalyzed(id);
 
@@ -190,7 +198,8 @@ describe("POST /candidates/:id/questions", () => {
                     "Pregunta personalizada número 1 sobre su transición real.",
                 dimension: "velocidad",
                 criterion: "adaptability",
-                validates: "Si la transición fue real y con contribución.",
+                // Sin `validates`: se dejó de pedir al modelo (2026-08-07).
+                validates: null,
                 idealAnswer:
                     "Describe contexto, brechas, método y entregables.",
                 positiveSignals: ["Da fechas concretas", "Explica trade-offs"],
@@ -210,10 +219,12 @@ describe("POST /candidates/:id/questions", () => {
                 "Responde con generalidades",
             ]);
 
-            // El prompt lleva el resumen, el análisis y el count.
+            // El prompt lleva el resumen, el análisis, el contexto del rol y
+            // el count.
             const prompt = mock.requests[0].body.messages[0].content;
             expect(prompt).toContain("Backend con transiciones demostradas.");
             expect(prompt).toContain("Validar profundidad.");
+            expect(prompt).toContain("Equipo de pagos, stack AWS y TypeScript.");
             expect(prompt).toContain("exactamente **8**");
             expect(prompt).not.toContain("{{");
 
@@ -226,6 +237,21 @@ describe("POST /candidates/:id/questions", () => {
                 created: 8,
                 total: 8,
             });
+        });
+
+        it("role_context null: se envía un contexto neutro, nunca '{{role_context}}'", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedAnalyzed(id);
+
+            await request
+                .post(`/candidates/${id}/questions`)
+                .send({ count: 2 })
+                .expect(201);
+
+            const prompt = mock.requests[0].body.messages[0].content;
+            expect(prompt).not.toContain("{{");
+            expect(prompt).toContain("(Sin contexto adicional del rol.)");
         });
 
         it("count personalizado (3) y acumulación en llamadas sucesivas", async () => {
@@ -311,8 +337,129 @@ describe("POST /candidates/:id/questions", () => {
         });
     });
 
+    /**
+     * Generar preguntas NO exige análisis previo (decisión del 2026-08-07):
+     * exigirlo gastaba una de las 5 regeneraciones de análisis por candidato
+     * (§16) solo para poder preguntar.
+     */
+    describe("sin análisis previo", () => {
+        /** Solo CV procesado: lo que deja /cv/extract, sin pasar por /analyze. */
+        function seedSummarizedOnly(candidateId: string): void {
+            db.prepare(
+                `UPDATE candidate
+                 SET cv_summary = ?, analysis_status = 'summarized'
+                 WHERE id = ?`,
+            ).run(
+                JSON.stringify({
+                    professional_summary: "Backend con transiciones.",
+                    evidence: {},
+                }),
+                candidateId,
+            );
+        }
+
+        /** El prompt que recibió el modelo en la petición `index`. */
+        function promptSent(index = 0): string {
+            const request = mock.requests[index];
+            expect(request, `no hubo petición ${index} al modelo`).toBeDefined();
+            return (request as RecordedRequest).body.messages
+                .map((m) => m.content)
+                .join("\n");
+        }
+
+        it("recorta la segunda pregunta de cola que devuelva el modelo", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedSummarizedOnly(id);
+            responder = () =>
+                chatCompletion({
+                    questions: [
+                        {
+                            ...validQuestions(1).questions[0],
+                            question:
+                                "¿Cómo migraste a TypeScript? ¿Y qué entregaste después?",
+                        },
+                    ],
+                });
+
+            const res = await request
+                .post(`/candidates/${id}/questions`)
+                .send({ count: 1 });
+
+            expect(res.status).toBe(201);
+            expect(res.body.questions[0].question).toBe(
+                "¿Cómo migraste a TypeScript?",
+            );
+            // Y así queda persistido, no solo en la respuesta.
+            expect(questionRows(id)[0].question).toBe(
+                "¿Cómo migraste a TypeScript?",
+            );
+        });
+
+        it("genera preguntas con solo el CV y el contexto del rol", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedSummarizedOnly(id);
+
+            const res = await request
+                .post(`/candidates/${id}/questions`)
+                .send({ count: 4 });
+
+            expect(res.status).toBe(201);
+            expect(res.body.questions).toHaveLength(4);
+            expect(questionRows(id)).toHaveLength(4);
+        });
+
+        it("avisa al modelo de que no hay análisis en vez de mandarle un JSON vacío", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedSummarizedOnly(id);
+
+            await request.post(`/candidates/${id}/questions`).send({ count: 2 });
+
+            const prompt = promptSent();
+            expect(prompt).toContain("aún no tiene análisis");
+            // Un "{}" se leería como "analizado y sin hallazgos".
+            expect(prompt).not.toContain('"scores"');
+        });
+
+        it("la auditoría distingue si hubo análisis detrás", async () => {
+            await createProcess();
+            const sinAnalisis = await createCandidate("Sin Analisis");
+            seedSummarizedOnly(sinAnalisis);
+            await request
+                .post(`/candidates/${sinAnalisis}/questions`)
+                .send({ count: 1 });
+
+            const conAnalisis = await createCandidate("Con Analisis");
+            seedAnalyzed(conAnalisis);
+            await request
+                .post(`/candidates/${conAnalisis}/questions`)
+                .send({ count: 1 });
+
+            const events = eventsByAction(db, "candidate.questions_generated");
+            expect(events).toHaveLength(2);
+            const flags = events.map(
+                (e) => JSON.parse(e.metadata as string).withAnalysis,
+            );
+            expect(flags).toEqual([false, true]);
+        });
+
+        it("si hay análisis, sus dudas siguen llegando al prompt", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedAnalyzed(id);
+
+            await request.post(`/candidates/${id}/questions`).send({ count: 2 });
+
+            const prompt = promptSent();
+            expect(prompt).toContain("Validar profundidad.");
+            expect(prompt).not.toContain("aún no tiene análisis");
+        });
+    });
+
     describe("validaciones", () => {
-        it("candidato sin analizar responde 400 INVALID_INPUT sin llamar al modelo", async () => {
+        it("candidato sin CV procesado responde 400 sin llamar al modelo", async () => {
             await createProcess();
             const id = await createCandidate();
 
@@ -322,19 +469,6 @@ describe("POST /candidates/:id/questions", () => {
             expect(res.status).toBe(400);
             expect(res.body.error.code).toBe("INVALID_INPUT");
             expect(mock.requests).toHaveLength(0);
-        });
-
-        it("candidato con resumen pero sin análisis también responde 400", async () => {
-            await createProcess();
-            const id = await createCandidate();
-            db.prepare(
-                "UPDATE candidate SET cv_summary = '{}', analysis_status = 'summarized' WHERE id = ?",
-            ).run(id);
-
-            const res = await request
-                .post(`/candidates/${id}/questions`)
-                .send({});
-            expect(res.status).toBe(400);
         });
 
         it.each([[0], [21], [2.5], ["ocho"]])(
@@ -403,5 +537,81 @@ describe("POST /candidates/:id/questions", () => {
             expect(res.body.error.code).toBe("RATE_LIMITED");
             expect(mock.requests).toHaveLength(0);
         });
+    });
+});
+
+/**
+ * Contrato de brevedad de las preguntas (decisión del 2026-08-07). El bloque
+ * se lee en voz alta durante la entrevista: tiene que entenderse de un vistazo.
+ */
+describe("contrato del bloque de pregunta", () => {
+    /** Una pregunta válida a la que ir rompiendo un campo cada vez. */
+    function baseQuestion() {
+        return {
+            question: "Migraste a microservicios. ¿Cuál fue la decisión más difícil?",
+            dimension: "profundidad_vs_exposicion" as const,
+            criterion: "depth" as const,
+            ideal_answer: "Nombra una decisión concreta y la alternativa que descartó.",
+            positive_signals: ["Compara dos alternativas reales."],
+            warning_signals: ["Describe la migración sin ninguna decisión."],
+            scoring_guidance: "1: sin decisión. 3: sin datos. 5: con validación.",
+        };
+    }
+
+    it("no pide `validates` al modelo: ni en el JSON Schema ni en zod", () => {
+        const props = GENERATE_QUESTIONS_JSON_SCHEMA.properties.questions.items;
+        expect(Object.keys(props.properties)).not.toContain("validates");
+        expect(props.required).not.toContain("validates");
+
+        // additionalProperties:false + .strict(): si el modelo lo colara igual,
+        // la respuesta se rechaza en vez de persistir texto redundante.
+        expect(props.additionalProperties).toBe(false);
+        const withValidates = {
+            questions: [{ ...baseQuestion(), validates: "algo" }],
+        };
+        expect(generateQuestionsZodSchema.safeParse(withValidates).success).toBe(
+            false,
+        );
+    });
+
+    it("los topes dejan holgura sobre lo que pide el prompt", () => {
+        // El prompt pide ~200/~300/~100/~200; el schema va por encima para que
+        // una frase larga no dispare un reintento innecesario.
+        expect(MAX_QUESTION_LENGTH).toBeGreaterThanOrEqual(200);
+        expect(MAX_IDEAL_ANSWER_LENGTH).toBeGreaterThanOrEqual(300);
+        expect(MAX_SIGNAL_LENGTH).toBeGreaterThanOrEqual(100);
+        expect(MAX_SCORING_GUIDANCE_LENGTH).toBeGreaterThanOrEqual(200);
+    });
+
+    it("rechaza los campos que se pasan del tope", () => {
+        const cases = [
+            { question: "x".repeat(MAX_QUESTION_LENGTH + 1) },
+            { ideal_answer: "x".repeat(MAX_IDEAL_ANSWER_LENGTH + 1) },
+            { positive_signals: ["x".repeat(MAX_SIGNAL_LENGTH + 1)] },
+            { scoring_guidance: "x".repeat(MAX_SCORING_GUIDANCE_LENGTH + 1) },
+            // Más señales de las admitidas: el prompt pide 3.
+            {
+                warning_signals: Array.from(
+                    { length: MAX_SIGNALS + 1 },
+                    () => "señal",
+                ),
+            },
+        ];
+        for (const patch of cases) {
+            const result = generateQuestionsZodSchema.safeParse({
+                questions: [{ ...baseQuestion(), ...patch }],
+            });
+            expect(result.success, JSON.stringify(Object.keys(patch))).toBe(
+                false,
+            );
+        }
+    });
+
+    it("acepta un bloque breve como el que pide el prompt", () => {
+        expect(
+            generateQuestionsZodSchema.safeParse({
+                questions: [baseQuestion()],
+            }).success,
+        ).toBe(true);
     });
 });

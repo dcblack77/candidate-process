@@ -1,7 +1,7 @@
 import { inject, injectable } from "@expressots/core";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireWritableProcess,
 } from "../process/process.repository";
 import { AuditRepository } from "../shared/audit";
 import { AppError } from "../shared/errors";
@@ -14,7 +14,7 @@ import {
 import { CandidateRepository } from "./candidate.repository";
 
 /**
- * POST /candidates — alta de candidato en el proceso activo.
+ * POST /candidates — alta de candidato en el proceso seleccionado.
  *
  * Límite §16: como mucho MAX_CANDIDATES_PER_PROCESS (100) candidatos no
  * borrados por proceso; superarlo es LIMIT_EXCEEDED.
@@ -31,17 +31,17 @@ export class CreateCandidateUseCase {
 
     execute(body: unknown): CandidateListItemDTO {
         const { name } = parseCandidateNameInput(body);
-        const active = requireActiveProcess(this.processes);
+        const selected = requireWritableProcess(this.processes);
 
-        const current = this.candidates.countActive(active.id);
+        const current = this.candidates.countActive(selected.id);
         if (current >= MAX_CANDIDATES_PER_PROCESS) {
             throw new AppError("LIMIT_EXCEEDED");
         }
 
-        const row = this.candidates.create(active.id, name);
+        const row = this.candidates.create(selected.id, name);
         // Auditoría sin datos sensibles: ids y contador, nunca el nombre.
         this.audit.logEvent("candidate.created", "candidate", row.id, {
-            processId: active.id,
+            processId: selected.id,
             candidateCount: current + 1,
         });
         return toCandidateListItem(row);

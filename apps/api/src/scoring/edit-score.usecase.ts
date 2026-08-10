@@ -3,7 +3,7 @@ import { CRITERIA } from "../ai/schemas/common";
 import { CandidateRepository } from "../candidates/candidate.repository";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireWritableProcess,
 } from "../process/process.repository";
 import { QuestionRepository } from "../questions/question.repository";
 import { interviewScoreOf } from "../questions/questions.dto";
@@ -21,7 +21,7 @@ import { computeFinalScore, CriterionScores } from "./weights";
 /**
  * PATCH /candidates/:id/score (BLUEPRINT §11 paso 11): edición manual.
  *
- * - Body parcial: criterios 1-5 enteros, confidence 0-1, manualNotes.
+ * - Body parcial: criterios 1-5 en pasos de 0,5, confidence 0-1, manualNotes.
  * - El final_score se RECALCULA con weights.ts sobre los valores resultantes
  *   (existentes + parche) siempre que los cinco criterios queden definidos.
  * - DECISIÓN documentada: si el candidato aún no tiene fila de score, el
@@ -45,8 +45,8 @@ export class EditScoreUseCase {
         assertValidId(id);
         const input = parseScorePatchInput(body);
 
-        const active = requireActiveProcess(this.processes);
-        const candidate = this.candidates.findActiveInProcess(id, active.id);
+        const selected = requireWritableProcess(this.processes);
+        const candidate = this.candidates.findActiveInProcess(id, selected.id);
         if (!candidate) {
             throw new AppError("NOT_FOUND");
         }

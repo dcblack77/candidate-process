@@ -1,14 +1,14 @@
 import { inject, injectable } from "@expressots/core";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireCurrentProcess,
 } from "../process/process.repository";
 import { CandidateListItemDTO, toCandidateListItem } from "./candidate.dto";
 import { CandidateRepository } from "./candidate.repository";
 
 /**
- * GET /candidates — candidatos no borrados del proceso activo.
- * Sin proceso activo no hay colección que listar: NOT_FOUND.
+ * GET /candidates — candidatos no borrados del proceso seleccionado.
+ * Sin proceso seleccionado no hay colección que listar: NOT_FOUND.
  */
 @injectable()
 export class ListCandidatesUseCase {
@@ -20,7 +20,7 @@ export class ListCandidatesUseCase {
     ) {}
 
     execute(): CandidateListItemDTO[] {
-        const active = requireActiveProcess(this.processes);
-        return this.candidates.listActive(active.id).map(toCandidateListItem);
+        const selected = requireCurrentProcess(this.processes);
+        return this.candidates.listActive(selected.id).map(toCandidateListItem);
     }
 }

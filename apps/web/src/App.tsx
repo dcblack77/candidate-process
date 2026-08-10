@@ -9,9 +9,41 @@ import { ExportPrintPage } from "./pages/ExportPrintPage";
 import { HomePage } from "./pages/HomePage";
 import { RankingPage } from "./pages/RankingPage";
 
-/** Cabecera con navegación; los enlaces de datos solo si hay proceso activo. */
+/**
+ * Selector del proceso en curso. Solo aparece con más de un proceso: con uno
+ * solo no hay nada que elegir y el título ya sale en Inicio.
+ *
+ * Cambiar aquí cambia el proceso PARA TODOS los clientes (la selección vive
+ * en el servidor), de ahí el aviso del title.
+ */
+function ProcessSwitcher() {
+    const { process, processes, select } = useProcess();
+    if (processes.length < 2) {
+        return null;
+    }
+    return (
+        <label className="process-switcher">
+            <span className="visually-hidden">Proceso en curso</span>
+            <select
+                value={process?.id ?? ""}
+                onChange={(e) => void select(e.target.value)}
+                title="Cambiar de proceso afecta a todos los equipos que estén usando la aplicación"
+            >
+                {processes.map((p) => (
+                    <option key={p.id} value={p.id}>
+                        {p.roleTitle}
+                        {p.status === "closed" ? " (archivado)" : ""} ·{" "}
+                        {p.candidateCount}
+                    </option>
+                ))}
+            </select>
+        </label>
+    );
+}
+
+/** Cabecera con navegación; los enlaces de datos solo si hay proceso. */
 function Header() {
-    const { process } = useProcess();
+    const { process, readOnly } = useProcess();
     return (
         <header className="app-header">
             <NavLink to="/" className="brand">
@@ -26,10 +58,16 @@ function Header() {
                         <NavLink to="/candidates">Candidatos</NavLink>
                         <NavLink to="/ranking">Comparativa</NavLink>
                         <NavLink to="/export">Exportar</NavLink>
-                        <NavLink to="/close">Cerrar proceso</NavLink>
+                        <NavLink to="/close">Archivar o borrar</NavLink>
                     </>
                 )}
             </nav>
+            {readOnly && (
+                <span className="badge badge-readonly" title="Proceso archivado">
+                    Solo lectura
+                </span>
+            )}
+            <ProcessSwitcher />
         </header>
     );
 }

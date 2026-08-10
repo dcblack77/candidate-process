@@ -1,5 +1,7 @@
 import { inject, injectable } from "@expressots/core";
 import { LlmClient } from "../ai/llm-client";
+import { NO_ANALYSIS_AVAILABLE } from "../ai/analysis-context";
+import { NEUTRAL_ROLE_CONTEXT } from "../ai/role-context";
 import {
     GENERATE_QUESTIONS_JSON_SCHEMA,
     GenerateQuestionsResult,
@@ -8,9 +10,9 @@ import {
 import { CandidateRepository } from "../candidates/candidate.repository";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireWritableProcess,
 } from "../process/process.repository";
-import { ScoreRepository } from "../scoring/score.repository";
+import { CandidateScoreRow, ScoreRepository } from "../scoring/score.repository";
 import { parseJsonColumn } from "../scoring/scoring.dto";
 import { RateLimiter } from "../security/rate-limit";
 import { AuditRepository } from "../shared/audit";
@@ -21,6 +23,7 @@ import {
     RATE_LIMITS_PER_HOUR,
 } from "../shared/limits";
 import { QuestionRepository } from "./question.repository";
+import { trimToSingleQuestion } from "./trim-question";
 import {
     GenerateQuestionsResponseDTO,
     parseQuestionCountInput,
@@ -36,14 +39,18 @@ export const QUESTIONS_RATE_KEY = "questions";
 /**
  * POST /candidates/:id/questions (BLUEPRINT §07, §14).
  *
- * - Requiere candidato ANALIZADO: usa cv_summary como {{cv_summary_json}} y
- *   el análisis persistido (scores + confidence + evidence_summary) como
- *   {{analysis_json}}. DECISIÓN: sin análisis → 400 INVALID_INPUT con
- *   mensaje claro (mismo criterio que analyze sin cv_summary: no existe un
- *   código 409 semánticamente correcto y no se añaden códigos nuevos).
+ * - Requiere únicamente el **CV procesado** (`cv_summary`). El análisis es
+ *   OPCIONAL (decisión del 2026-08-07): con el resumen del CV y el contexto
+ *   del rol ya hay material para preguntar. Antes se exigía análisis previo,
+ *   lo que gastaba una de las 5 regeneraciones por candidato (§16) solo para
+ *   poder generar preguntas. Sin `cv_summary` → 400 INVALID_INPUT (mismo
+ *   criterio que analyze: no hay código 409 semánticamente correcto y no se
+ *   añaden códigos nuevos).
+ * - Si el análisis EXISTE se aprovecha: sus dudas y sus criterios flojos son
+ *   la primera fuente de preguntas. Si no, el prompt recibe
+ *   {@link NO_ANALYSIS_AVAILABLE} y se apoya solo en el CV.
  * - Límite §16: existentes + count ≤ 20 → si no, 422 LIMIT_EXCEEDED.
- * - Persiste cada pregunta con el bloque completo de §14; las señales se
- *   guardan como JSON.
+ * - Persiste cada pregunta con el bloque de §14; las señales como JSON.
  */
 @injectable()
 export class GenerateQuestionsUseCase {
@@ -67,22 +74,16 @@ export class GenerateQuestionsUseCase {
         assertValidId(id);
         const { count } = parseQuestionCountInput(body);
 
-        const active = requireActiveProcess(this.processes);
-        const candidate = this.candidates.findActiveInProcess(id, active.id);
+        const selected = requireWritableProcess(this.processes);
+        const candidate = this.candidates.findActiveInProcess(id, selected.id);
         if (!candidate) {
             throw new AppError("NOT_FOUND");
         }
 
-        const score = this.scores.findByCandidate(id);
-        if (
-            candidate.analysis_status !== "analyzed" ||
-            !candidate.cv_summary ||
-            !score ||
-            score.adaptability === null
-        ) {
+        if (!candidate.cv_summary) {
             throw new AppError(
                 "INVALID_INPUT",
-                "El candidato aún no está analizado: ejecuta antes el análisis (/analyze).",
+                "Este candidato aún no tiene el CV procesado: súbelo antes de generar preguntas.",
             );
         }
 
@@ -99,22 +100,8 @@ export class GenerateQuestionsUseCase {
             RATE_LIMITS_PER_HOUR.QUESTIONS,
         );
 
-        // analysis_json: scores sugeridos + confianza + evidence_summary
-        // ({criteria, doubts, risks}) del último análisis.
-        const evidenceSummary = parseJsonColumn(score.evidence_summary);
-        const analysisJson = JSON.stringify({
-            scores: {
-                adaptability: score.adaptability,
-                fundamentals: score.fundamentals,
-                depth: score.depth,
-                production: score.production,
-                stack: score.stack,
-            },
-            confidence: score.confidence,
-            ...(typeof evidenceSummary === "object" && evidenceSummary !== null
-                ? evidenceSummary
-                : {}),
-        });
+        const score = this.scores.findByCandidate(id);
+        const analysisJson = buildAnalysisJson(score);
 
         const startedAt = Date.now();
         const result = await this.llm.complete<GenerateQuestionsResult>({
@@ -122,7 +109,8 @@ export class GenerateQuestionsUseCase {
             variables: {
                 cv_summary_json: candidate.cv_summary,
                 analysis_json: analysisJson,
-                role_title: active.role_title,
+                role_title: selected.role_title,
+                role_context: selected.role_context ?? NEUTRAL_ROLE_CONTEXT,
                 count: String(count),
             },
             schema: GENERATE_QUESTIONS_JSON_SCHEMA,
@@ -130,16 +118,24 @@ export class GenerateQuestionsUseCase {
         });
 
         // Si el modelo devolviera más de las pedidas, se recortan: el límite
-        // de 20 por candidato jamás se rebasa por exceso del modelo.
-        const generated = result.questions.slice(0, count);
+        // de 20 por candidato jamás se rebasa por exceso del modelo. Y de cada
+        // una se deja una sola interrogación (ver trim-question.ts).
+        const generated = result.questions
+            .slice(0, count)
+            .map((question) => ({
+                ...question,
+                question: trimToSingleQuestion(question.question),
+            }));
         const rows = this.questions.insertMany(id, generated);
         const total = this.questions.countByCandidate(id);
 
-        // Auditoría sin contenido (§17): solo conteos y duración.
+        // Auditoría sin contenido (§17): solo conteos, duración y si las
+        // preguntas se apoyaron o no en un análisis previo.
         this.audit.logEvent("candidate.questions_generated", "candidate", id, {
             requested: count,
             created: rows.length,
             total,
+            withAnalysis: analysisJson !== NO_ANALYSIS_AVAILABLE,
             durationMs: Date.now() - startedAt,
         });
 
@@ -150,4 +146,33 @@ export class GenerateQuestionsUseCase {
             questionsLimit: MAX_QUESTIONS_PER_CANDIDATE,
         };
     }
+}
+
+/**
+ * {{analysis_json}}: scores sugeridos + confianza + evidence_summary
+ * ({criteria, doubts, risks}) del último análisis.
+ *
+ * Una fila de score sin `adaptability` es un análisis a medias (por ejemplo,
+ * solo notas manuales): cuenta como "sin análisis" para no mandar al modelo
+ * un objeto de puntuaciones lleno de nulos.
+ */
+function buildAnalysisJson(score: CandidateScoreRow | undefined): string {
+    if (!score || score.adaptability === null) {
+        return NO_ANALYSIS_AVAILABLE;
+    }
+
+    const evidenceSummary = parseJsonColumn(score.evidence_summary);
+    return JSON.stringify({
+        scores: {
+            adaptability: score.adaptability,
+            fundamentals: score.fundamentals,
+            depth: score.depth,
+            production: score.production,
+            stack: score.stack,
+        },
+        confidence: score.confidence,
+        ...(typeof evidenceSummary === "object" && evidenceSummary !== null
+            ? evidenceSummary
+            : {}),
+    });
 }

@@ -28,7 +28,7 @@ import { ListCandidatesUseCase } from "./list-candidates.usecase";
 import { RenameCandidateUseCase } from "./rename-candidate.usecase";
 
 /**
- * Rutas de candidatos (BLUEPRINT §10). Todas cuelgan del proceso activo.
+ * Rutas de candidatos (BLUEPRINT §10). Todas cuelgan del proceso seleccionado.
  *
  * Permisos (§09): lectura/alta/edición usan canCreateCandidate (gestión de
  * candidatos); el borrado usa canDeleteData. Siempre validados en backend.

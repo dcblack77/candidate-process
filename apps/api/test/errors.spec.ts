@@ -35,8 +35,9 @@ describe("AppError", () => {
             RATE_LIMITED: 429,
             INVALID_INPUT: 400,
             LLM_UNAVAILABLE: 502,
+            STT_UNAVAILABLE: 502,
             FORBIDDEN: 403,
-            ACTIVE_PROCESS_EXISTS: 409,
+            PROCESS_CLOSED: 409,
             FILE_TOO_LARGE: 413,
             UNSUPPORTED_MEDIA_TYPE: 415,
         };

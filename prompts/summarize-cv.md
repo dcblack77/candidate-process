@@ -24,7 +24,7 @@ Contexto del rol:
    - `explicit`: el CV lo afirma directamente (proyecto, responsabilidad, resultado).
    - `inferred`: es una deducción tuya razonable a partir del CV, no una afirmación literal.
 4. **Diferencia exposición superficial de responsabilidad real.** "Trabajé con X" no es lo mismo que "diseñé, operé y respondí por X".
-5. **Prioriza resultados concretos**: entregables, métricas, sistemas en producción, impacto medible.
+5. **Prioriza resultados concretos**: entregables, sistemas en producción, responsabilidad real.
 6. **Detecta transiciones tecnológicas demostradas**: cambios de stack, lenguaje, paradigma o dominio en los que el candidato entregó algo real después del cambio.
 7. **Señala qué debe validarse en entrevista**: todo lo que el CV sugiere pero no confirma va a `doubts_for_interview`.
 8. **PRIVACIDAD — obligatorio**: IGNORA y NO REPRODUZCAS foto, edad, fecha de nacimiento, dirección, nacionalidad, estado civil ni ningún otro dato personal irrelevante para evaluar capacidad técnica. No los menciones ni siquiera de forma indirecta.

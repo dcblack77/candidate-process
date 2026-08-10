@@ -12,8 +12,14 @@ export const APP_ERROR_CODES = [
     "RATE_LIMITED",
     "INVALID_INPUT",
     "LLM_UNAVAILABLE",
+    // Transcripción local caída (contenedor `voice-stt`). Código propio y no
+    // LLM_UNAVAILABLE: son dos servicios distintos y quien lo lea tiene que
+    // saber cuál de los dos levantar (§24).
+    "STT_UNAVAILABLE",
     "FORBIDDEN",
-    "ACTIVE_PROCESS_EXISTS",
+    // El proceso seleccionado está archivado: se puede consultar pero no
+    // modificar (§16, multiproceso 2026-08-07).
+    "PROCESS_CLOSED",
     // Subida de CV (§16): tamaño y formato tienen códigos HTTP propios
     // (413/415) distintos del 422 de LIMIT_EXCEEDED y del 400 de INVALID_INPUT.
     "FILE_TOO_LARGE",
@@ -29,8 +35,9 @@ const HTTP_STATUS_BY_CODE: Record<AppErrorCode, number> = {
     RATE_LIMITED: 429,
     INVALID_INPUT: 400,
     LLM_UNAVAILABLE: 502,
+    STT_UNAVAILABLE: 502,
     FORBIDDEN: 403,
-    ACTIVE_PROCESS_EXISTS: 409,
+    PROCESS_CLOSED: 409,
     FILE_TOO_LARGE: 413,
     UNSUPPORTED_MEDIA_TYPE: 415,
 };
@@ -45,8 +52,11 @@ const DEFAULT_MESSAGE_BY_CODE: Record<AppErrorCode, string> = {
     RATE_LIMITED: "Demasiadas peticiones. Inténtalo de nuevo más tarde.",
     INVALID_INPUT: "La petición contiene datos inválidos.",
     LLM_UNAVAILABLE: "El modelo local no está disponible en este momento.",
+    STT_UNAVAILABLE:
+        "El servicio local de transcripción no está disponible en este momento.",
     FORBIDDEN: "No tienes permiso para realizar esta acción.",
-    ACTIVE_PROCESS_EXISTS: "Ya existe un proceso activo.",
+    PROCESS_CLOSED:
+        "El proceso seleccionado está archivado: solo admite consulta.",
     FILE_TOO_LARGE: "El archivo supera el tamaño máximo permitido.",
     UNSUPPORTED_MEDIA_TYPE:
         "El formato de archivo no está permitido (PDF, DOCX o TXT).",

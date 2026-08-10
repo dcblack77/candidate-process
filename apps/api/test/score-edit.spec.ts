@@ -81,6 +81,25 @@ describe("PATCH /candidates/:id/score y POST /candidates/:id/notes", () => {
             });
         });
 
+        it("acepta medios puntos y los incorpora al score ponderado", async () => {
+            await createProcess();
+            const id = await createCandidate();
+
+            const res = await request
+                .patch(`/candidates/${id}/score`)
+                .send({ ...FULL_SCORES, production: 2.5 });
+
+            expect(res.status).toBe(200);
+            expect(res.body).toMatchObject({
+                scores: { ...FULL_SCORES, production: 2.5 },
+                finalScore: 3.58,
+            });
+            expect(scoreRow(id)).toMatchObject({
+                production: 2.5,
+                final_score: 3.58,
+            });
+        });
+
         it("parcial sin score previo responde 404 (no hay nada que editar)", async () => {
             await createProcess();
             const id = await createCandidate();
@@ -195,7 +214,7 @@ describe("PATCH /candidates/:id/score y POST /candidates/:id/notes", () => {
         it.each([
             [{ adaptability: 0 }],
             [{ adaptability: 6 }],
-            [{ fundamentals: 2.5 }],
+            [{ fundamentals: 2.25 }],
             [{ depth: "3" }],
             [{ confidence: -0.1 }],
             [{ confidence: 1.5 }],

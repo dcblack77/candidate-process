@@ -130,7 +130,9 @@ export class QuestionRepository {
                     question.criterion,
                     question.dimension,
                     question.question,
-                    question.validates,
+                    // `validates` ya no se pide al modelo (2026-08-07): repetía
+                    // la pregunta. La columna se mantiene para las filas viejas.
+                    null,
                     question.ideal_answer,
                     JSON.stringify(question.positive_signals),
                     JSON.stringify(question.warning_signals),

@@ -83,8 +83,9 @@ export type AppErrorCode =
     | "RATE_LIMITED"
     | "INVALID_INPUT"
     | "LLM_UNAVAILABLE"
+    | "STT_UNAVAILABLE"
     | "FORBIDDEN"
-    | "ACTIVE_PROCESS_EXISTS"
+    | "PROCESS_CLOSED"
     | "FILE_TOO_LARGE"
     | "UNSUPPORTED_MEDIA_TYPE";
 
@@ -102,12 +103,38 @@ export interface ProcessResponseDTO {
     id: string;
     roleTitle: string;
     roleContext: string | null;
+    /** `closed` = archivado: se consulta pero no se modifica. */
     status: "active" | "closed";
     createdAt: string;
     closedAt: string | null;
+    /** true si es el proceso seleccionado (sobre el que opera el resto). */
+    isCurrent: boolean;
 }
 
-/** Respuesta de POST /process/close y DELETE /process. */
+/**
+ * Entrada de GET /process/list. Sin `roleContext` a propósito: la lista solo
+ * sirve para elegir proceso.
+ */
+export interface ProcessListItemDTO {
+    id: string;
+    roleTitle: string;
+    status: "active" | "closed";
+    createdAt: string;
+    closedAt: string | null;
+    isCurrent: boolean;
+    candidateCount: number;
+}
+
+/**
+ * Cuerpo de PATCH /process. Al menos un campo; `roleContext: null` borra el
+ * contexto del rol (el backend distingue null de ausente).
+ */
+export interface ProcessPatchBody {
+    roleTitle?: string;
+    roleContext?: string | null;
+}
+
+/** Respuesta de DELETE /process y DELETE /process/:id (borrado definitivo). */
 export interface ProcessPurgeResponseDTO {
     deleted: true;
     candidatesDeleted: number;
@@ -132,6 +159,8 @@ export interface CandidateDetailDTO extends CandidateListItemDTO {
     questions: InterviewQuestionDTO[];
     /** Agregados de las notas de entrevista (§15). Siempre presente. */
     interview: InterviewSummaryDTO;
+    /** Propuestas VIVAS del análisis de audio (§24); vacío si no hay. */
+    proposals: ProposalDTO[];
     updatedAt: string;
 }
 
@@ -335,6 +364,126 @@ export function emptyInterviewSummary(): InterviewSummaryDTO {
     return { byCriterion, overall: null, answeredCount: 0, totalCount: 0 };
 }
 
+// ── Entrevista asistida por audio (§24) ────────────────────────────────────
+
+/**
+ * Hasta qué punto el candidato abordó el tema de una pregunta.
+ * `mencionado` NO es cobertura: nombrar el tema de pasada no demuestra nada.
+ */
+export type CoverageLevel =
+    | "no_abordado"
+    | "mencionado"
+    | "abordado_parcial"
+    | "abordado_demostrado";
+
+/** Etiquetas en español de cada nivel de cobertura. */
+export const COVERAGE_LABELS: Record<CoverageLevel, string> = {
+    no_abordado: "No abordado",
+    mencionado: "Solo mencionado",
+    abordado_parcial: "Abordado en parte",
+    abordado_demostrado: "Abordado y demostrado",
+};
+
+/** Sufijo de clase CSS del badge de cada nivel (ver styles.css). */
+export const COVERAGE_CLASSES: Record<CoverageLevel, string> = {
+    no_abordado: "coverage-none",
+    mencionado: "coverage-mentioned",
+    abordado_parcial: "coverage-partial",
+    abordado_demostrado: "coverage-demonstrated",
+};
+
+export type ProposalStatus = "proposed" | "applied" | "dismissed";
+
+/**
+ * Cita literal de la transcripción que respalda una propuesta. Es el único
+ * texto de la entrevista que se persiste; sin ella el evaluador no podría
+ * auditar de dónde salió la nota sugerida.
+ */
+export interface ProposalQuoteDTO {
+    quote: string;
+    startSec: number;
+    endSec: number;
+}
+
+/** Una pista guardada de una grabación (§24). */
+export interface RecordingTrackDTO {
+    label: string;
+    speaker: "candidato" | "sala";
+    bytes: number;
+}
+
+/**
+ * Grabación de entrevista conservada en el servidor (§24, 2026-08-10).
+ *
+ * Existe para que un análisis que se cae se pueda reintentar sin repetir la
+ * entrevista. Nunca trae rutas de disco ni una URL del audio: el audio no se
+ * sirve desde ninguna parte, solo se reanaliza o se borra.
+ */
+export interface RecordingDTO {
+    id: string;
+    createdAt: string;
+    candidateSource: "mic" | "tab";
+    tracks: RecordingTrackDTO[];
+    bytes: number;
+    /** Con transcripción guardada, reanalizar se salta la transcripción. */
+    hasTranscript: boolean;
+    durationSec: number | null;
+    segments: number | null;
+    lastRunId: string | null;
+    lastStatus: "running" | "done" | "failed" | "cancelled" | null;
+    lastErrorCode: string | null;
+}
+
+/** Estado de un análisis de audio en curso o terminado (§24). */
+export interface InterviewAnalysisDTO {
+    candidateId: string;
+    jobId: string;
+    /**
+     * Grabación sobre la que corre. Solo viene al LANZAR el análisis (POST):
+     * el sondeo posterior devuelve el estado del job, que no la conoce.
+     */
+    recordingId?: string;
+    status: "running" | "done" | "failed" | "cancelled";
+    phase: "transcribing" | "routing" | "assessing" | "done";
+    progress: { done: number; total: number };
+    startedAt: string;
+    finishedAt: string | null;
+    stats: {
+        durationSec: number;
+        segments: number;
+        chunks: number;
+        questionsAssessed: number;
+        llmCalls: number;
+        demoted: number;
+        routingFailures: number;
+    } | null;
+    error: { code: string; message: string } | null;
+    proposals: ProposalDTO[];
+}
+
+/** Etiqueta de la fase, para la barra de progreso. */
+export const PHASE_LABELS: Record<InterviewAnalysisDTO["phase"], string> = {
+    transcribing: "Transcribiendo el audio",
+    routing: "Localizando los temas",
+    assessing: "Evaluando cada pregunta",
+    done: "Terminado",
+};
+
+export interface ProposalDTO {
+    id: string;
+    questionId: string;
+    runId: string;
+    coverage: CoverageLevel;
+    /** null salvo que la cobertura sea `abordado_*`. */
+    proposedScore: number | null;
+    proposedNotes: string | null;
+    evidence: ProposalQuoteDTO[];
+    confidence: number | null;
+    status: ProposalStatus;
+    createdAt: string;
+    resolvedAt: string | null;
+}
+
 // ── Ranking ────────────────────────────────────────────────────────────────
 
 /**
@@ -509,4 +658,6 @@ export interface HealthResponseDTO {
     status: "ok";
     db: boolean;
     llm: boolean;
+    /** Servicio local de transcripción (§24). */
+    stt: boolean;
 }

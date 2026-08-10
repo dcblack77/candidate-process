@@ -7,6 +7,7 @@ import {
     CandidateScoreDTO,
     InterviewQuestionDTO,
     InterviewSummaryDTO,
+    ProposalDTO,
 } from "../src/api/types";
 import { CandidateDetailPage } from "../src/pages/CandidateDetailPage";
 import { installFetchMock, jsonResponse } from "./helpers";
@@ -64,6 +65,7 @@ const CANDIDATE: CandidateDetailDTO = {
     score: null,
     questions: [],
     interview: EMPTY_INTERVIEW,
+    proposals: [],
 };
 
 /** Análisis antiguo, anterior al contraste CV/entrevista: sin veredictos. */
@@ -114,6 +116,7 @@ const CANDIDATE_ASSESSED: CandidateDetailDTO = {
             stack: null,
         },
     },
+    proposals: [],
     interview: {
         byCriterion: {
             adaptability: { average: 8, answered: 2 },
@@ -221,13 +224,43 @@ describe("CandidateDetailPage", () => {
 
         expect(
             await screen.findByText(
-                "Adaptabilidad: la puntuación debe ser un entero entre 1 y 5.",
+                "Adaptabilidad: la puntuación debe estar entre 1 y 5 en pasos de 0,5.",
             ),
         ).toBeInTheDocument();
         // Ninguna llamada PATCH salió hacia la API.
         expect(
             calls.filter((call) => call.init.method === "PATCH"),
         ).toHaveLength(0);
+    });
+
+    it("permite enviar puntuaciones con incrementos de medio punto", async () => {
+        const { calls } = installFetchMock({
+            "GET /api/candidates/c1": () => jsonResponse(CANDIDATE),
+            "PATCH /api/candidates/c1/score": () =>
+                jsonResponse({
+                    ...SCORE,
+                    scores: { ...SCORE.scores, production: 2.5 },
+                    cvScore: 3.98,
+                    finalScore: 3.98,
+                    overallScore: 3.98,
+                }),
+        });
+        renderPage();
+        const user = userEvent.setup();
+
+        const input = await screen.findByLabelText("Producción (1-5)");
+        await user.type(input, "2.5");
+        await user.click(
+            screen.getByRole("button", { name: "Guardar puntuaciones" }),
+        );
+
+        await waitFor(() => {
+            const patch = calls.find((call) => call.init.method === "PATCH");
+            expect(patch).toBeDefined();
+            expect(JSON.parse(String(patch!.init.body))).toEqual({
+                production: 2.5,
+            });
+        });
     });
 
     // El PATCH devuelve los TRES scores ya calculados por el backend: la UI
@@ -405,6 +438,26 @@ describe("CandidateDetailPage · entrevista", () => {
         vi.unstubAllGlobals();
     });
 
+    it("no pinta «Qué valida» aunque la pregunta antigua traiga el campo", async () => {
+        installFetchMock({
+            "GET /api/candidates/c1": () =>
+                jsonResponse(CANDIDATE_WITH_QUESTION),
+        });
+        renderPage();
+        const user = userEvent.setup();
+
+        const question = await openQuestion(user);
+        // El bloque sigue mostrando dimensión y criterio...
+        expect(question.getByText("Dimensión")).toBeInTheDocument();
+        expect(question.getByText("Criterio")).toBeInTheDocument();
+        // ...pero «Qué valida» se retiró por redundante (2026-08-07), incluso
+        // en las preguntas generadas antes, que aún guardan el texto.
+        expect(question.queryByText("Qué valida")).not.toBeInTheDocument();
+        expect(
+            question.queryByText("Capacidad de aprender un stack nuevo"),
+        ).not.toBeInTheDocument();
+    });
+
     it("pulsar una nota envía { score } y refresca el panel de agregados", async () => {
         const { calls } = installFetchMock({
             "GET /api/candidates/c1": () =>
@@ -542,6 +595,193 @@ describe("CandidateDetailPage · entrevista", () => {
             await question.findByText(
                 "Los datos enviados no son válidos. Revisa el formulario.",
             ),
+        ).toBeInTheDocument();
+    });
+});
+
+/**
+ * Propuestas del análisis de audio (§24). Lo que se fija aquí es que nada se
+ * aplica solo y que aplicar pasa por el PATCH de la respuesta DE SIEMPRE.
+ */
+describe("CandidateDetailPage · propuestas del audio", () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    const PROPOSAL: ProposalDTO = {
+        id: "pr1",
+        questionId: "q1",
+        runId: "run1",
+        coverage: "abordado_demostrado",
+        proposedScore: 8,
+        proposedNotes: "Explica la partición y la valida con métricas.",
+        evidence: [
+            {
+                quote: "Partimos por bounded context separando pagos de catálogo",
+                startSec: 751,
+                endSec: 765,
+            },
+        ],
+        confidence: 0.9,
+        status: "proposed",
+        createdAt: "2026-08-07T10:00:00.000Z",
+        resolvedAt: null,
+    };
+
+    const CON_PROPUESTA: CandidateDetailDTO = {
+        ...CANDIDATE_WITH_QUESTION,
+        proposals: [PROPOSAL],
+    };
+
+    it("anuncia la propuesta en la cabecera y muestra la cita con su minuto", async () => {
+        installFetchMock({
+            "GET /api/candidates/c1": () => jsonResponse(CON_PROPUESTA),
+        });
+        renderPage();
+        const user = userEvent.setup();
+
+        expect(
+            await screen.findByText(/Propuesta: Abordado y demostrado · 8\/10/),
+        ).toBeInTheDocument();
+
+        const question = await openQuestion(user);
+        expect(question.getByText("[12:31]")).toBeInTheDocument();
+        expect(
+            question.getByText(/Partimos por bounded context/),
+        ).toBeInTheDocument();
+        // Deja claro de quién es la decisión.
+        expect(
+            question.getByText(/Revísala antes de aplicarla/),
+        ).toBeInTheDocument();
+    });
+
+    it("«Usar esta propuesta» escribe la nota por el PATCH de siempre y luego la marca", async () => {
+        const { calls } = installFetchMock({
+            "GET /api/candidates/c1": () => jsonResponse(CON_PROPUESTA),
+            [ANSWER_ROUTE]: () =>
+                jsonResponse({
+                    candidateId: "c1",
+                    question: { ...QUESTION, answerScore: 8 },
+                    interview: INTERVIEW_AFTER_8,
+                }),
+            "PATCH /api/candidates/c1/interview/proposals/pr1": () =>
+                jsonResponse({
+                    proposal: { ...PROPOSAL, status: "applied" },
+                }),
+        });
+        renderPage();
+        const user = userEvent.setup();
+
+        const question = await openQuestion(user);
+        await user.click(
+            question.getByRole("button", { name: "Usar esta propuesta" }),
+        );
+
+        // Se espera a que salgan las DOS llamadas: primero la respuesta real,
+        // después el marcado de la propuesta.
+        await waitFor(() => {
+            expect(
+                calls.filter((call) => call.init.method === "PATCH"),
+            ).toHaveLength(2);
+        });
+        expect(
+            calls
+                .filter((call) => call.init.method === "PATCH")
+                .map((call) => call.url),
+        ).toEqual([
+            "/api/candidates/c1/questions/q1/answer",
+            "/api/candidates/c1/interview/proposals/pr1",
+        ]);
+
+        const answer = calls.find(
+            (call) =>
+                call.url === "/api/candidates/c1/questions/q1/answer" &&
+                call.init.method === "PATCH",
+        );
+        expect(answer).toBeDefined();
+        expect(JSON.parse(String(answer!.init.body))).toEqual({
+            score: 8,
+            notes: "Explica la partición y la valida con métricas.",
+        });
+
+        const resolved = calls.find(
+            (call) =>
+                call.url === "/api/candidates/c1/interview/proposals/pr1",
+        );
+        expect(JSON.parse(String(resolved!.init.body))).toEqual({
+            status: "applied",
+        });
+    });
+
+    it("«Descartar» no toca la respuesta del candidato", async () => {
+        const { calls } = installFetchMock({
+            "GET /api/candidates/c1": () => jsonResponse(CON_PROPUESTA),
+            "PATCH /api/candidates/c1/interview/proposals/pr1": () =>
+                jsonResponse({
+                    proposal: { ...PROPOSAL, status: "dismissed" },
+                }),
+        });
+        renderPage();
+        const user = userEvent.setup();
+
+        const question = await openQuestion(user);
+        await user.click(question.getByRole("button", { name: "Descartar" }));
+
+        await screen.findByText(/Propuesta:/);
+        expect(
+            calls.some((call) => call.url.includes("/questions/q1/answer")),
+        ).toBe(false);
+    });
+
+    it("una propuesta sin nota no ofrece aplicarla", async () => {
+        installFetchMock({
+            "GET /api/candidates/c1": () =>
+                jsonResponse({
+                    ...CANDIDATE_WITH_QUESTION,
+                    proposals: [
+                        {
+                            ...PROPOSAL,
+                            coverage: "mencionado",
+                            proposedScore: null,
+                            evidence: [],
+                        },
+                    ],
+                }),
+        });
+        renderPage();
+        const user = userEvent.setup();
+
+        const question = await openQuestion(user);
+        expect(
+            question.queryByRole("button", { name: "Usar esta propuesta" }),
+        ).not.toBeInTheDocument();
+        expect(
+            question.getByText(/Sin citas verificadas/),
+        ).toBeInTheDocument();
+    });
+
+    it("con poca confianza nace plegada y avisa", async () => {
+        installFetchMock({
+            "GET /api/candidates/c1": () =>
+                jsonResponse({
+                    ...CANDIDATE_WITH_QUESTION,
+                    proposals: [{ ...PROPOSAL, confidence: 0.3 }],
+                }),
+        });
+        renderPage();
+        const user = userEvent.setup();
+
+        const question = await openQuestion(user);
+        expect(
+            question.getByText(/no está seguro de esta propuesta/),
+        ).toBeInTheDocument();
+        expect(
+            question.queryByRole("button", { name: "Usar esta propuesta" }),
+        ).not.toBeInTheDocument();
+
+        await user.click(question.getByRole("button", { name: "Ver propuesta" }));
+        expect(
+            question.getByRole("button", { name: "Usar esta propuesta" }),
         ).toBeInTheDocument();
     });
 });

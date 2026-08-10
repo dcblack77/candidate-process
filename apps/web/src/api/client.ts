@@ -13,9 +13,14 @@ import {
     ExportStructuredResponseDTO,
     GenerateQuestionsResponseDTO,
     HealthResponseDTO,
+    InterviewAnalysisDTO,
+    ProcessListItemDTO,
+    ProposalDTO,
+    ProcessPatchBody,
     ProcessPurgeResponseDTO,
     ProcessResponseDTO,
     RankingResponseDTO,
+    RecordingDTO,
     ScorePatchBody,
 } from "./types";
 
@@ -91,17 +96,51 @@ export const api = {
     },
 
     // ── Process ───────────────────────────────────────────────────────────
+    /** El proceso seleccionado. 404 NOT_FOUND si todavía no hay ninguno. */
     getProcess(): Promise<ProcessResponseDTO> {
         return request("/process");
     },
+    /** Todos los procesos, abiertos y archivados, para poder cambiar. */
+    listProcesses(): Promise<ProcessListItemDTO[]> {
+        return request("/process/list");
+    },
+    /** Crea un proceso nuevo SIN cerrar los anteriores y lo deja seleccionado. */
     createProcess(input: {
         roleTitle: string;
         roleContext?: string;
     }): Promise<ProcessResponseDTO> {
         return request("/process", jsonInit("POST", input));
     },
-    closeProcess(): Promise<ProcessPurgeResponseDTO> {
-        return request("/process/close", jsonInit("POST", { confirmDelete: true }));
+    updateProcess(input: ProcessPatchBody): Promise<ProcessResponseDTO> {
+        return request("/process", jsonInit("PATCH", input));
+    },
+    /**
+     * Cambia el proceso seleccionado. OJO: es estado de servidor compartido —
+     * afecta a cualquier otro navegador que esté usando la aplicación.
+     */
+    selectProcess(id: string): Promise<ProcessResponseDTO> {
+        return request(
+            `/process/${encodeURIComponent(id)}/select`,
+            jsonInit("POST"),
+        );
+    },
+    /** Archiva el proceso seleccionado: pasa a solo lectura, sin borrar nada. */
+    closeProcess(): Promise<ProcessResponseDTO> {
+        return request("/process/close", jsonInit("POST"));
+    },
+    /** Devuelve un proceso archivado a estado abierto. */
+    reopenProcess(id: string): Promise<ProcessResponseDTO> {
+        return request(
+            `/process/${encodeURIComponent(id)}/reopen`,
+            jsonInit("POST"),
+        );
+    },
+    /** Borrado DEFINITIVO de un proceso y todos sus datos derivados. */
+    deleteProcess(id: string): Promise<ProcessPurgeResponseDTO> {
+        return request(
+            `/process/${encodeURIComponent(id)}`,
+            jsonInit("DELETE", { confirmDelete: true }),
+        );
     },
 
     // ── Candidates ────────────────────────────────────────────────────────
@@ -173,6 +212,91 @@ export const api = {
         return request(
             `/candidates/${encodeURIComponent(candidateId)}/questions/${encodeURIComponent(questionId)}/answer`,
             jsonInit("PATCH", body),
+        );
+    },
+
+    // ── Entrevista asistida por audio (§24) ───────────────────────────────
+    /**
+     * Sube las pistas y lanza el análisis. Responde 202 enseguida: el trabajo
+     * dura minutos y se sigue con `getInterviewAnalysis`.
+     */
+    startInterviewAnalysis(
+        candidateId: string,
+        tracks: { mic?: Blob; tab?: Blob },
+        meta: { candidateSource: "mic" | "tab"; includeAnswered?: boolean },
+    ): Promise<InterviewAnalysisDTO> {
+        const form = new FormData();
+        if (tracks.mic) {
+            form.append("mic", tracks.mic, "mic.webm");
+        }
+        if (tracks.tab) {
+            form.append("tab", tracks.tab, "tab.webm");
+        }
+        form.append("meta", JSON.stringify(meta));
+        return request(
+            `/candidates/${encodeURIComponent(candidateId)}/interview/analysis`,
+            { method: "POST", body: form },
+        );
+    },
+    getInterviewAnalysis(
+        candidateId: string,
+        jobId: string,
+    ): Promise<InterviewAnalysisDTO> {
+        return request(
+            `/candidates/${encodeURIComponent(candidateId)}/interview/analysis/${encodeURIComponent(jobId)}`,
+        );
+    },
+    cancelInterviewAnalysis(
+        candidateId: string,
+        jobId: string,
+    ): Promise<InterviewAnalysisDTO> {
+        return request(
+            `/candidates/${encodeURIComponent(candidateId)}/interview/analysis/${encodeURIComponent(jobId)}`,
+            { method: "DELETE" },
+        );
+    },
+    /** Grabaciones conservadas de un candidato (§24). */
+    listRecordings(candidateId: string): Promise<{ recordings: RecordingDTO[] }> {
+        return request(
+            `/candidates/${encodeURIComponent(candidateId)}/interview/recordings`,
+        );
+    },
+    /**
+     * Relanza el análisis sobre una grabación ya guardada. Sin subida: si hay
+     * transcripción guardada ni siquiera se vuelve a transcribir.
+     */
+    resumeInterviewAnalysis(
+        candidateId: string,
+        recordingId: string,
+        options: { includeAnswered?: boolean } = {},
+    ): Promise<InterviewAnalysisDTO> {
+        return request(
+            `/candidates/${encodeURIComponent(candidateId)}/interview/analysis/from/${encodeURIComponent(recordingId)}`,
+            jsonInit("POST", options),
+        );
+    },
+    /** Borra una grabación: archivos y fila. Irreversible. */
+    deleteRecording(
+        candidateId: string,
+        recordingId: string,
+    ): Promise<{ id: string; deleted: true }> {
+        return request(
+            `/candidates/${encodeURIComponent(candidateId)}/interview/recordings/${encodeURIComponent(recordingId)}`,
+            { method: "DELETE" },
+        );
+    },
+    /**
+     * Marca una propuesta como aplicada o descartada. OJO: esto NO escribe la
+     * nota — aplicar es mandar antes el PATCH de la respuesta de siempre.
+     */
+    resolveProposal(
+        candidateId: string,
+        proposalId: string,
+        status: "applied" | "dismissed",
+    ): Promise<{ proposal: ProposalDTO }> {
+        return request(
+            `/candidates/${encodeURIComponent(candidateId)}/interview/proposals/${encodeURIComponent(proposalId)}`,
+            jsonInit("PATCH", { status }),
         );
     },
 

@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 pnpm install                 # instalar (workspace pnpm: apps/api + apps/web)
-pnpm dev                     # API (127.0.0.1:3010) + UI (127.0.0.1:5173) en paralelo
+pnpm dev                     # API (127.0.0.1:$API_PORT, 3010 por defecto) + UI (:5173)
 pnpm dev:api / pnpm dev:web  # cada app por separado
-pnpm test                    # suite completa; api: 267 tests, web: 37
+pnpm test                    # suite completa; api: 411 tests, web: 64
 pnpm --filter api test -- <patrón>   # un spec concreto (p. ej. -- weights, -- cv)
 pnpm build                   # tsc estricto + bundle de web
 pnpm --filter api lint       # eslint del backend
@@ -22,17 +22,39 @@ Los tests del backend usan SQLite `:memory:` y un mock HTTP de llama.cpp — nun
 ## Stack y decisiones clave
 
 - **Backend** `apps/api`: ExpressoTS 4 (Express + Inversify). `@inject` SIEMPRE explícito (tsx no emite `design:paramtypes`). Cada dominio es un módulo (controller + usecases + repository); `health/` es el patrón de referencia. El bind a 127.0.0.1 se fuerza en `app.ts` (`forceLocalhostBinding`, con verificación post-arranque que aborta si no es local) porque el adapter no expone host — no tocar sin entender el comentario de ese método.
-- **DB**: better-sqlite3 síncrono, SQL directo, migrador propio (`db/migrate.ts` + `db/migrations/NNN_*.sql`). WAL + foreign_keys ON. El single-active-process está forzado por índice único parcial.
+- **DB**: better-sqlite3 síncrono, SQL directo, migrador propio (`db/migrate.ts` + `db/migrations/NNN_*.sql`). WAL + foreign_keys ON. Puede haber **varios procesos abiertos**; lo que fuerza el índice único parcial (`idx_process_single_current`, migración 004) es que solo uno esté SELECCIONADO (`process.is_current`).
+- **Multiproceso** (2026-08-07, deroga el "solo un proceso activo" de §16): `process.is_current` marca el proceso sobre el que operan todos los demás dominios. Es estado de **servidor compartido**: cambiarlo desde un equipo de la LAN lo cambia para todos (decisión explícita del usuario frente a una selección por cliente). Las guardas viven en `process.repository.ts`: `requireCurrentProcess` en los usecases de LECTURA (listar/ver candidatos, ranking, export) y `requireWritableProcess` en los de ESCRITURA, que rechaza con `PROCESS_CLOSED` (409) si el proceso está archivado. Al añadir un usecase nuevo hay que elegir una de las dos conscientemente.
+- **Archivar ≠ borrar**: `POST /process/close` archiva (`status='closed'` + `closed_at`) conservando todos los datos en solo lectura, es reversible con `POST /process/:id/reopen` y NO pide confirmación. Purgar es `DELETE /process[/:id]` con `confirmDelete: true`. Si se borra el proceso seleccionado, el repositorio selecciona el más reciente que quede para no dejar la app apuntando a nada.
 - **IA** `apps/api/src/ai/`: `LlmClient` (response_format json_schema + zod, reintentos con temperatura 0.2→0.4, cola de concurrencia 1, presupuesto de tokens). Prompts en `prompts/*.md` (raíz), cargados por `PromptLoader`; los comentarios HTML iniciales se eliminan antes de enviar.
 - **Frontend** `apps/web`: React + Vite, sin librerías de estado ni UI kits; CSS global con variables. Proxy `/api` → 127.0.0.1:3010. Tipos espejo de los DTOs en `src/api/types.ts` — si cambia un DTO del backend, actualizar el espejo. La UI escucha en 0.0.0.0 (accesible desde la LAN, decisión explícita del usuario del 2026-07-29; `WEB_HOST=127.0.0.1` la devuelve a solo-local); la API sigue solo en localhost y se alcanza únicamente vía el proxy.
+- **HTTPS del servidor de desarrollo** (2026-08-08, `apps/web/dev/tls.ts`): certificado autofirmado generado y cacheado en `certs/`. NO es una medida de seguridad —sigue sin haber autenticación— sino el único modo de que el navegador dé acceso al micrófono fuera de localhost; sin esto, grabar la entrevista (§24) desde la LAN es imposible y no hay bandera que lo desactive, porque la restricción es del navegador. Los SAN incluyen todas las IPv4 no internas y el certificado se regenera solo cuando caduca o cambia la IP; el resto del tiempo se reutiliza para no invalidar la excepción que aceptó cada navegador. Se salta en tests y builds (`process.env.VITEST`, `command !== "serve"`) y, si falla, se arranca en HTTP con un aviso en vez de tumbar el servidor. `WEB_HTTPS=false` lo desactiva.
+- El contexto del rol (`process.role_context`) es editable vía `PATCH /process` (UI en la Home) y se inyecta en los tres prompts del flujo (`summarize-cv`, `score-candidate`, `generate-questions`); el texto neutro cuando no hay contexto vive en `ai/role-context.ts`. Los prompts no exigen métricas ni impacto cuantificado (decisión del 2026-07-30, ver §13 del blueprint).
 - `scoring/weights.ts` es la ÚNICA fuente de pesos (rúbrica y combinado 30/70) y desempates; el modelo nunca calcula el score final (el backend lo recalcula siempre) y el frontend consume los pesos vía `GET /ranking` (`weights` y `scoreWeights`).
 - **Export** (§19) `apps/api/src/export/`: `POST /export` acepta `format: "markdown"` (default, contrato original) o `"structured"`. El markdown lo escribe `markdown-builder.ts`; el structured devuelve LOS MISMOS datos en JSON y `structured-builder.ts` solo aplica `include` (nada de duplicar la selección de datos). La UI maqueta ese JSON en `/export/print` y el **navegador** genera el PDF: cero librerías nuevas y la API sigue sin escribir en disco. La vista de impresión NUNCA convierte markdown a HTML —prohibidos `dangerouslySetInnerHTML`, `innerHTML` y cualquier librería markdown→HTML— porque el contenido viene del modelo y del CV. Los datos llegan a la vista **en memoria** (`apps/web/src/context/PrintExportContext.tsx`), nunca por sessionStorage ni por el state del router (§17), y la vista no vuelve a llamar a la API (consumiría otra de las 10 exportaciones).
 - Límite de 5 regeneraciones de análisis = COUNT de `app_event` con `action='candidate.analyzed'`; 20 preguntas = COUNT en tabla; 10 exports/sesión = contador en memoria.
 - Errores: `AppError` con códigos tipados (`shared/errors.ts`) → `{error:{code,message}}`; los errores no controlados se loguean sin mensaje (solo tipo + frames).
 
+## Entrevista asistida por audio (§24, 2026-08-07)
+
+Subir la grabación de una entrevista → transcribir en local → **proponer** nota y notas para las preguntas sin puntuar, incluidas las que el candidato abordó sin que se le preguntara. Motivación: la nota de entrevista pesa el 70% del score final y las preguntas en blanco distorsionan el ranking.
+
+- **Transcripción**: `ai/stt-client.ts` habla con `faster-whisper-server` (contenedor `voice-stt` de /opt/ai-server, perfil `voice`) en `STT_BASE_URL`. NO cuelga del router de :8080, que no enruta audio. Cola de concurrencia 1 y `STT_TIMEOUT_MS=600000` — no los 120 s del LLM: una pista de 50 min tarda ~4,5 min en CPU. `GET /health` reporta `stt`.
+- **Dos pistas separadas, nunca mezcladas**: whisper no diariza. Con una sola pista el modelo no distingue lo que dijo el candidato de lo que preguntó el entrevistador, y ese falso positivo es irrecuperable. La atribución de hablante es un dato, no una instrucción del prompt.
+- **Dos etapas** (`interview/analysis-runner.ts`): enrutado por fragmento (`map-transcript-topics`) y evaluación por pregunta (`assess-question-coverage`). Un 2B no mapea 20 preguntas contra 45.000 caracteres de una vez. Troceado con solape de 20 s en `interview/chunking.ts`; si el enrutado no asigna nada a una pregunta, `interview/lexical-match.ts` elige el mejor fragmento para que ninguna quede sin evaluar **en silencio**. `stats.routingFailures` hace visible cuándo pasa.
+- **`interview/quote-verifier.ts` es la pieza crítica**: verifica cada cita contra lo que dijo el CANDIDATO, degrada `abordado_*` a `mencionado` si no queda evidencia, aplica suelos de longitud (180/60 caracteres) y anula la nota si el nivel final no la justifica. Cuatro capas en código, no en el prompt. **Quita el prefijo `[12:31] CANDIDATO:` de las citas**: el modelo copia la línea entera y sin eso NINGUNA cita casaba (verificado el 2026-08-07).
+- **El sistema propone, el humano decide**: el dominio interview NUNCA escribe `answer_score`/`answer_notes`. Aplicar una propuesta es mandar el `PATCH .../answer` de siempre y después marcarla `applied`.
+- **Job en memoria** (`interview/job-registry.ts`), uno a la vez, con polling. Sigue siendo volátil: lo que se recupera de un análisis caído no es el job, es la **grabación**.
+- **El audio y la transcripción SÍ se persisten** desde el 2026-08-10 (`interview/recording-store.ts` + migración 006), lo que **deroga** la regla de §17 que decía lo contrario. Motivo: cuando el job moría a medias se perdía también el audio —el navegador solo lo tenía en RAM— y una entrevista ya celebrada se quedaba sin evaluar. Ahora se reintenta con `POST .../analysis/from/:recordingId`, y si `transcript.json` existe el reintento **se salta whisper** (~4,5 min por pista). `interview/audio-upload.middleware.ts` sigue con `memoryStorage` y `takeAudioOwnership`; el buffer en RAM se sigue poniendo a cero al transcribir — lo que cambia es que antes de eso ya está en disco.
+- **Reglas que sostienen esa decisión**: el audio NO se sirve por ninguna ruta (solo se reanaliza o se borra); la pantalla del candidato lista siempre lo guardado con su tamaño; purgar el proceso borra los **archivos antes que las filas** (el `ON DELETE CASCADE` se llevaría la única pista de qué hay en disco); al arrancar se barren las grabaciones huérfanas (`pruneOrphanRecordings`, solo directorios con nombre de UUID); tope de 5 por candidato que **rechaza** en vez de rotar; sin caducidad automática. Escritura atómica (`.tmp` + `rename`) porque el fallo del que venimos es un proceso que muere a medias.
+- Reanalizar NO admite cambiar `candidateSource`: la transcripción ya está atribuida y darle la vuelta convertiría lo que preguntó el entrevistador en algo "demostrado" por el candidato.
+- Validado contra el modelo real el 2026-08-07: 4/4 niveles de cobertura correctos, ~3-4 s por llamada.
+- **Captura en el navegador** (`interview/useAudioCapture.ts`): micrófono + pestaña en dos `MediaRecorder` independientes. `getDisplayMedia` va con `video: true` OBLIGATORIO —Chrome no enseña la casilla del audio de pestaña en una petición solo-audio— y el vídeo se descarta al instante. El bucle de medidores usa una bandera además de `cancelAnimationFrame`: se reprograma a sí mismo y sin ella revivía tras el desmontaje. Exige contexto seguro; con el HTTPS del servidor de desarrollo eso ya se cumple también desde la LAN, y si aun así se entra por HTTP en claro la pantalla ofrece la dirección `https://` equivalente y el camino de subir el archivo.
+- **Subir un archivo suelto es más débil que grabar**: una sola pista no permite separar hablantes, así que el modelo puede tomar por demostrado algo que preguntó el entrevistador. La UI lo advierte.
+- **Calidad del STT**: `faster-whisper-base` degrada el español técnico de forma apreciable (medido: "throttles en CloudWatch" → "trotles en trogwatch"). `STT_MODEL=Systran/faster-whisper-small` lo mejora; es una variable más un pull al contenedor.
+
 ## Deuda técnica
 
-Cifrado en reposo de `data/local.db` pendiente (§17) — obligatorio antes de usar datos reales. Ver README.
+Cifrado en reposo pendiente (§17) — obligatorio antes de usar datos reales. Ver README. Desde el 2026-08-10 la deuda **creció**: además de `data/local.db` (con las citas de entrevista, transcripción literal de una persona real) está `data/interviews/`, con **grabaciones completas de voz** de personas identificables. Sin cifrar, en una máquina cuya UI es accesible desde la LAN sin autenticación. `RECORDINGS_DIR` está separado de `DB_PATH` justamente para poder apuntarlo a un volumen cifrado sin mover la base. Conservar la grabación de una entrevista además obliga a informar al candidato.
 
 ## Qué es el sistema
 
@@ -49,13 +71,14 @@ Estas reglas vienen de las secciones 04, 08, 10, 16, 17 y 23 del blueprint y con
 - **Nada sensible en logs ni en errores**: ni texto del CV, ni resúmenes completos, ni prompts con datos personales, ni notas privadas.
 - **Los exports excluyen por defecto** notas privadas, texto extraído, prompts y datos personales irrelevantes.
 - **No persistir datos personales irrelevantes** (foto, edad, dirección, nacionalidad, estado civil) aunque aparezcan en el CV.
-- El cierre de proceso ofrece borrado explícito con confirmación de todos los datos derivados.
+- El borrado de todos los datos derivados de un proceso está disponible de forma explícita y con confirmación (`confirmDelete: true`). Desde el multiproceso, archivar ya NO borra: los datos de un proceso terminado persisten hasta que alguien los borre, lo que agrava la deuda del cifrado en reposo.
 
 Si algo de esto no se puede cumplir en una iteración, debe quedar registrado como deuda técnica **antes** de usar datos reales (aplica especialmente al cifrado en reposo de resúmenes, evidencias, notas y resultados).
 
 ## Rúbrica y ranking
 
-Cinco criterios, cada uno puntuado de 1 a 5:
+Cinco criterios, cada uno puntuado de 1 a 5. El modelo propone enteros y la
+edición manual admite pasos de 0,5:
 
 | Criterio | Peso | Campo |
 |---|---:|---|
@@ -86,6 +109,7 @@ La **nota de entrevista** (§15) no altera `score_cv` pero pesa el 70% de `score
 /
 ├── BLUEPRINT.md
 ├── data/local.db          # persistencia local
+├── data/interviews/       # audio + transcripción por grabación (§24, sin cifrar)
 ├── prompts/               # prompts versionados en el repo
 │   ├── summarize-cv.md
 │   ├── score-candidate.md
@@ -109,21 +133,25 @@ Organización **por dominio, no por capa técnica**. Los prompts son artefactos 
 
 Entidades: `Process`, `Candidate`, `CandidateScore`, `InterviewQuestion`, `AppEvent` (auditoría). Ver §12 del blueprint para los campos exactos. `Candidate` usa `deleted_at` (borrado lógico) además del borrado definitivo al cerrar proceso.
 
-Rutas previstas en §10 del blueprint; el flujo canónico es: crear proceso → añadir candidato → subir CV → `/cv/extract` → `/analyze` → `/questions` → editar `/score` → `/ranking` → `/export` → `/process/close`.
+Rutas previstas en §10 del blueprint; el flujo canónico es: crear proceso → añadir candidato → subir CV → `/cv/extract` → `/analyze` → `/questions` → editar `/score` → `/ranking` → `/export` → `/process/close` (archivar). En paralelo se puede abrir otro proceso (`POST /process`) y saltar entre ellos (`POST /process/:id/select`).
 
 ## Reglas de análisis con el modelo
 
 El análisis debe **separar evidencia explícita de inferencia**. No inventar experiencia, no asumir dominio por la simple mención de una tecnología, distinguir exposición superficial de responsabilidad real, y marcar explícitamente qué queda pendiente de validar en entrevista. Cada análisis reporta un **nivel de confianza**.
 
-Cada pregunta generada lleva siempre el bloque completo: pregunta, dimensión, criterio, qué valida, respuesta ideal, señales positivas, señales de alerta y guía de puntuación (ver ejemplo en §14).
+Cada pregunta generada lleva el bloque de §14: pregunta, dimensión, criterio, respuesta ideal, señales positivas, señales de alerta y guía de puntuación.
+
+**Generar preguntas no requiere análisis previo** (2026-08-07): el usecase solo exige `cv_summary`. Exigir análisis gastaba una de las 5 regeneraciones por candidato (§16) nada más que para poder preguntar. Si hay score, `{{analysis_json}}` lo lleva; si no, va el texto de `ai/analysis-context.ts` — una frase, no un `{}`, que el modelo leería como "analizado y sin hallazgos".
+
+**Brevedad del bloque** (2026-08-07): se lee en voz alta en la entrevista. Quien marca la longitud es `prompts/generate-questions.md` (pregunta ~200 caracteres y UNA sola, respuesta ideal ~300, 3 señales de ~100, puntuación ~200); los `maxLength` de `ai/schemas/generate-questions.ts` son un techo con holgura deliberada, porque el schema se vuelve gramática en llama.cpp y un tope pegado al objetivo convertiría cualquier frase larga en un reintento. Medido contra `gemma-4-E2B`: la pregunta bajó de ~380 a ~120 caracteres. Se retiró el campo `validates` (repetía la pregunta): la columna y el DTO se conservan por las preguntas antiguas, pero ni se pide al modelo ni se pinta. `questions/trim-question.ts` recorta la segunda interrogación de cola que el modelo cuela pese al prompt — se normaliza en vez de rechazar porque rechazar dispararía reintentos y podría tirar la generación entera por una coletilla. El prompt también exige español explícitamente: sin esa regla, con un CV en inglés el modelo devolvía las preguntas en inglés.
 
 ## Límites operativos
 
-CV ≤ 10 MB; texto extraído ≤ 50.000 caracteres; ≤ 100 candidatos por proceso; ≤ 5 regeneraciones de análisis por candidato; ≤ 20 preguntas por candidato; ≤ 10 exportaciones por sesión. Rate limiting local por hora: extracción 20, análisis 30, preguntas 60, ranking 30. Formatos aceptados: PDF, DOCX, TXT.
+CV ≤ 10 MB; texto extraído ≤ 50.000 caracteres; ≤ 100 candidatos por proceso; ≤ 5 regeneraciones de análisis por candidato; ≤ 20 preguntas por candidato; ≤ 10 exportaciones por sesión; audio de entrevista ≤ 25 MB por pista y ≤ 5 grabaciones conservadas por candidato (§24: se rechaza al llegar al tope, no se rota — qué se borra lo decide el evaluador). Rate limiting local por hora: extracción 20, análisis 30, preguntas 60, ranking 30, entrevista 6. Formatos aceptados: PDF, DOCX, TXT.
 
 ## Fuera de alcance del MVP
 
-Login real, registro público, múltiples usuarios, roles complejos, modelos externos, ATS, emails, calendario, pagos y decisión automática de contratación. Solo un proceso activo a la vez.
+Login real, registro público, múltiples usuarios, roles complejos, modelos externos, ATS, emails, calendario, pagos y decisión automática de contratación. Sigue habiendo un único proceso *seleccionado* a la vez y un único rol técnico por proceso; lo que ya no aplica es el límite de un solo proceso abierto.
 
 ## Idioma
 

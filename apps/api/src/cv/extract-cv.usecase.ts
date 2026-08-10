@@ -6,6 +6,7 @@ import {
     truncateToBudget,
 } from "../ai/llm-client";
 import { PromptLoader } from "../ai/prompts";
+import { NEUTRAL_ROLE_CONTEXT } from "../ai/role-context";
 import {
     SUMMARIZE_CV_JSON_SCHEMA,
     SummarizeCvResult,
@@ -15,7 +16,7 @@ import { CandidateRepository } from "../candidates/candidate.repository";
 import { AppEnv, ENV } from "../env";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireWritableProcess,
 } from "../process/process.repository";
 import { RateLimiter } from "../security/rate-limit";
 import { AuditRepository } from "../shared/audit";
@@ -34,9 +35,6 @@ const SUMMARIZE_PROMPT = "summarize-cv";
 
 /** Clave del rate limiter para la extracción de CV (§16: 20/hora). */
 export const CV_EXTRACT_RATE_KEY = "cv-extract";
-
-/** Texto neutro cuando el proceso no tiene role_context. */
-const NEUTRAL_ROLE_CONTEXT = "(Sin contexto adicional del rol.)";
 
 /**
  * POST /candidates/:id/cv/extract — pipeline completo del CV (BLUEPRINT §05,
@@ -71,9 +69,9 @@ export class ExtractCvUseCase {
         const kind = validateUploadedCv(file);
         const cvFile = file as UploadedCvFile;
 
-        // El candidato debe existir en el proceso activo y no estar borrado.
-        const active = requireActiveProcess(this.processes);
-        const candidate = this.candidates.findActiveInProcess(id, active.id);
+        // El candidato debe existir en el proceso seleccionado y no estar borrado.
+        const selected = requireWritableProcess(this.processes);
+        const candidate = this.candidates.findActiveInProcess(id, selected.id);
         if (!candidate) {
             throw new AppError("NOT_FOUND");
         }
@@ -95,8 +93,8 @@ export class ExtractCvUseCase {
             const text = await extractText(cvFile.buffer, kind);
             extractedChars = text.length;
 
-            const roleTitle = active.role_title;
-            const roleContext = active.role_context ?? NEUTRAL_ROLE_CONTEXT;
+            const roleTitle = selected.role_title;
+            const roleContext = selected.role_context ?? NEUTRAL_ROLE_CONTEXT;
 
             // Doble truncado (plan §Riesgos): 50k chars (§16) y además el
             // presupuesto de tokens del contexto del modelo, descontando el

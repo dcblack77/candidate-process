@@ -23,6 +23,8 @@ export const canGenerateQuestions: PermissionCheck = (user) => isAdmin(user);
 export const canEditScores: PermissionCheck = (user) => isAdmin(user);
 export const canViewRanking: PermissionCheck = (user) => isAdmin(user);
 export const canExportResults: PermissionCheck = (user) => isAdmin(user);
+/** Subir audio de entrevista y lanzar su análisis (§24). */
+export const canTranscribeInterview: PermissionCheck = (user) => isAdmin(user);
 export const canCloseProcess: PermissionCheck = (user) => isAdmin(user);
 export const canDeleteData: PermissionCheck = (user) => isAdmin(user);
 

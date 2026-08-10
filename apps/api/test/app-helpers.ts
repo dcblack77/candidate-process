@@ -1,4 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { Server } from "node:http";
+import os from "node:os";
+import path from "node:path";
 import { createModule, interfaces } from "@expressots/core";
 import supertest from "supertest";
 import { App } from "../src/app";
@@ -26,6 +29,12 @@ export interface TestApp {
     /** Cliente supertest apuntando a la app real. */
     request: ReturnType<typeof supertest>;
     /**
+     * Directorio temporal donde esta app escribe las grabaciones (§24). Igual
+     * que la DB va a ":memory:", esto va a /tmp: ningún test puede escribir
+     * audio en `data/interviews` del repo.
+     */
+    recordingsDir: string;
+    /**
      * Vacía el contador de exportaciones por sesión (§16: 10 por sesión de
      * la API). Es un singleton del contenedor y NO lo limpia `resetDb`: sin
      * esto, los tests de export se contaminan entre sí.
@@ -38,8 +47,15 @@ export interface TestApp {
 export async function createTestApp(): Promise<TestApp> {
     const db = createTestDb();
 
+    const recordingsDir = mkdtempSync(
+        path.join(os.tmpdir(), "candidate-recordings-"),
+    );
+
     const TestCoreModule = createModule((bind: interfaces.Bind) => {
-        bind<AppEnv>(ENV).toConstantValue(loadEnv());
+        bind<AppEnv>(ENV).toConstantValue({
+            ...loadEnv(),
+            RECORDINGS_DIR: recordingsDir,
+        });
         bind<Database>(DB).toConstantValue(db);
         bind(AuditRepository).toSelf().inSingletonScope();
         bind(RateLimiter).toSelf().inSingletonScope();
@@ -52,10 +68,12 @@ export async function createTestApp(): Promise<TestApp> {
     return {
         db,
         request: supertest(server),
+        recordingsDir,
         resetExportCounter: () =>
             app.diContainer.Container.get(ExportSessionCounter).reset(),
         close: () =>
             new Promise<void>((resolve, reject) => {
+                rmSync(recordingsDir, { recursive: true, force: true });
                 server.close((error) => (error ? reject(error) : resolve()));
             }),
     };

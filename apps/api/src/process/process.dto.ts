@@ -1,5 +1,6 @@
 import { AppError } from "../shared/errors";
 import {
+    ProcessListRow,
     ProcessRow,
     ProcessPurgeCounts,
     ProcessUpdate,
@@ -25,11 +26,34 @@ export interface ProcessResponseDTO {
     status: "active" | "closed";
     createdAt: string;
     closedAt: string | null;
+    /** true si es el proceso seleccionado (sobre el que opera el resto). */
+    isCurrent: boolean;
 }
 
-/** Respuesta de POST /process/close y DELETE /process. */
+/**
+ * Entrada de la lista de procesos (GET /process/list). No lleva
+ * `roleContext`: la lista solo sirve para elegir, y el contexto puede ser
+ * largo — quien lo necesite pide el proceso seleccionado con GET /process.
+ */
+export interface ProcessListItemDTO {
+    id: string;
+    roleTitle: string;
+    status: "active" | "closed";
+    createdAt: string;
+    closedAt: string | null;
+    isCurrent: boolean;
+    /** Candidatos vivos del proceso (sin los borrados lógicamente). */
+    candidateCount: number;
+}
+
+/** Respuesta de DELETE /process y DELETE /process/:id. */
 export interface ProcessPurgeResponseDTO extends ProcessPurgeCounts {
     deleted: true;
+    /**
+     * Grabaciones de entrevista borradas del disco (§24). Se cuenta aparte de
+     * `ProcessPurgeCounts` porque no sale de la transacción SQL: son archivos.
+     */
+    recordings: number;
 }
 
 export function toProcessResponse(row: ProcessRow): ProcessResponseDTO {
@@ -40,6 +64,19 @@ export function toProcessResponse(row: ProcessRow): ProcessResponseDTO {
         status: row.status,
         createdAt: row.created_at,
         closedAt: row.closed_at,
+        isCurrent: row.is_current === 1,
+    };
+}
+
+export function toProcessListItem(row: ProcessListRow): ProcessListItemDTO {
+    return {
+        id: row.id,
+        roleTitle: row.role_title,
+        status: row.status,
+        createdAt: row.created_at,
+        closedAt: row.closed_at,
+        isCurrent: row.is_current === 1,
+        candidateCount: row.candidate_count,
     };
 }
 

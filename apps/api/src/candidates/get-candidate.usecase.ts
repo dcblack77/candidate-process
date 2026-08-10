@@ -1,8 +1,10 @@
 import { inject, injectable } from "@expressots/core";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireCurrentProcess,
 } from "../process/process.repository";
+import { ProposalRepository } from "../interview/proposal.repository";
+import { toProposalDTO } from "../interview/interview.dto";
 import { QuestionRepository } from "../questions/question.repository";
 import { interviewScoreOf, toQuestionDTO } from "../questions/questions.dto";
 import { ScoreRepository } from "../scoring/score.repository";
@@ -31,12 +33,14 @@ export class GetCandidateUseCase {
         @inject(ScoreRepository) private readonly scores: ScoreRepository,
         @inject(QuestionRepository)
         private readonly questions: QuestionRepository,
+        @inject(ProposalRepository)
+        private readonly proposals: ProposalRepository,
     ) {}
 
     execute(id: unknown): CandidateDetailDTO {
         assertValidId(id);
-        const active = requireActiveProcess(this.processes);
-        const row = this.candidates.findActiveInProcess(id, active.id);
+        const selected = requireCurrentProcess(this.processes);
+        const row = this.candidates.findActiveInProcess(id, selected.id);
         if (!row) {
             throw new AppError("NOT_FOUND");
         }
@@ -48,6 +52,7 @@ export class GetCandidateUseCase {
             score ? toCandidateScoreDTO(score, interview.overall) : null,
             questions.map(toQuestionDTO),
             interview,
+            this.proposals.listProposedForCandidate(id).map(toProposalDTO),
         );
     }
 }

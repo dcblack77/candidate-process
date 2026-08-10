@@ -5,9 +5,15 @@ import {
     ProcessResponseDTO,
     toProcessResponse,
 } from "./process.dto";
-import { ProcessRepository, requireActiveProcess } from "./process.repository";
+import {
+    ProcessRepository,
+    requireWritableProcess,
+} from "./process.repository";
 
-/** PATCH /process — edita roleTitle/roleContext del proceso activo. */
+/**
+ * PATCH /process — edita roleTitle/roleContext del proceso seleccionado.
+ * Es una escritura: sobre un proceso archivado responde PROCESS_CLOSED.
+ */
 @injectable()
 export class UpdateProcessUseCase {
     constructor(
@@ -17,12 +23,12 @@ export class UpdateProcessUseCase {
     ) {}
 
     execute(body: unknown): ProcessResponseDTO {
-        const active = requireActiveProcess(this.processes);
+        const current = requireWritableProcess(this.processes);
         const update = parseUpdateProcessInput(body);
 
-        const row = this.processes.update(active.id, update);
+        const row = this.processes.update(current.id, update);
         // Auditoría sin datos sensibles: solo qué campos cambiaron.
-        this.audit.logEvent("process.updated", "process", active.id, {
+        this.audit.logEvent("process.updated", "process", current.id, {
             roleTitleChanged: update.roleTitle !== undefined,
             roleContextChanged: update.roleContext !== undefined,
         });

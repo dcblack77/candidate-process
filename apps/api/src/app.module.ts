@@ -2,6 +2,7 @@ import { createModule, interfaces } from "@expressots/core";
 import { createDatabase, Database, DB } from "./db/database";
 import { runMigrations } from "./db/migrate";
 import { AppEnv, ENV, loadEnv } from "./env";
+import { pruneOrphanRecordings } from "./interview/recording-store";
 import { RateLimiter } from "./security/rate-limit";
 import { AuditRepository } from "./shared/audit";
 
@@ -17,6 +18,19 @@ export const CoreModule = createModule((bind: interfaces.Bind) => {
     if (applied.length > 0) {
         // Log sin datos sensibles: solo nombres de archivos de migración.
         console.info(`[db] migraciones aplicadas: ${applied.join(", ")}`);
+    }
+
+    // Barrido de grabaciones huérfanas (§24): audio sin fila que lo respalde
+    // es audio que nadie puede ver ni borrar desde la aplicación.
+    const known = new Set(
+        db
+            .prepare("SELECT id FROM interview_recording")
+            .all()
+            .map((row) => (row as { id: string }).id),
+    );
+    const orphans = pruneOrphanRecordings(env.RECORDINGS_DIR, known);
+    if (orphans.length > 0) {
+        console.info(`[recordings] huérfanas borradas: ${orphans.length}`);
     }
 
     bind<AppEnv>(ENV).toConstantValue(env);

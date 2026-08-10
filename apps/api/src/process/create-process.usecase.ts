@@ -1,6 +1,5 @@
 import { inject, injectable } from "@expressots/core";
 import { AuditRepository } from "../shared/audit";
-import { AppError } from "../shared/errors";
 import {
     parseCreateProcessInput,
     ProcessResponseDTO,
@@ -9,11 +8,11 @@ import {
 import { ProcessRepository } from "./process.repository";
 
 /**
- * POST /process — crea el proceso de selección.
+ * POST /process — crea un proceso de selección y lo deja seleccionado.
  *
- * Solo puede haber un proceso activo (BLUEPRINT §16): se comprueba aquí y,
- * ante una carrera, el índice único parcial de la DB lo fuerza igualmente
- * (el repositorio traduce la violación a ACTIVE_PROCESS_EXISTS).
+ * Desde el multiproceso (2026-08-07) ya no falla si hay otros procesos
+ * abiertos: crear uno nuevo NO cierra ni borra los anteriores, solo cambia
+ * cuál está seleccionado. Para volver a otro: POST /process/:id/select.
  */
 @injectable()
 export class CreateProcessUseCase {
@@ -26,13 +25,14 @@ export class CreateProcessUseCase {
     execute(body: unknown): ProcessResponseDTO {
         const input = parseCreateProcessInput(body);
 
-        if (this.processes.findActive()) {
-            throw new AppError("ACTIVE_PROCESS_EXISTS");
-        }
-
+        const previous = this.processes.findCurrent();
         const row = this.processes.create(input.roleTitle, input.roleContext);
-        // Auditoría sin datos sensibles: solo el id del proceso.
-        this.audit.logEvent("process.created", "process", row.id);
+
+        // Auditoría sin datos sensibles: ids y cuántos procesos quedan vivos.
+        this.audit.logEvent("process.created", "process", row.id, {
+            previousProcessId: previous?.id ?? null,
+            totalProcesses: this.processes.listAll().length,
+        });
         return toProcessResponse(row);
     }
 }

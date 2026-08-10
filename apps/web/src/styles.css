@@ -58,6 +58,66 @@ body {
     flex-wrap: wrap;
 }
 
+/* Selector de proceso: empujado a la derecha, junto al aviso de solo lectura. */
+.process-switcher {
+    margin-left: auto;
+}
+
+.process-switcher select {
+    max-width: 22rem;
+}
+
+.badge-readonly {
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
+}
+
+/* Con el badge presente, el margen automático lo toma él. */
+.badge-readonly + .process-switcher {
+    margin-left: 0.5rem;
+}
+
+.app-header .badge-readonly {
+    margin-left: auto;
+}
+
+/* Lista de otros procesos (Inicio). */
+.process-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 0.75rem;
+}
+
+.process-list li {
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+/* Botón que se lee como enlace: cambiar de proceso es navegación, no una
+   acción destructiva, pero sigue siendo un <button> por accesibilidad. */
+.link-button {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--color-primary);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* Texto solo para lectores de pantalla. */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 .app-nav a {
     color: var(--color-text-muted);
     text-decoration: none;
@@ -912,4 +972,164 @@ th.overall-header {
     color: var(--color-text-muted);
     font-weight: 400;
     border: 1px dashed var(--color-border);
+}
+
+/* ── Propuestas del análisis de entrevista (§24) ── */
+
+.proposal-card {
+    border: 1px solid var(--color-border);
+    border-left: 3px solid var(--color-primary);
+    border-radius: 6px;
+    padding: 0.6rem 0.8rem;
+    margin-bottom: 0.75rem;
+    background: var(--color-surface);
+}
+
+.proposal-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.4rem;
+}
+
+/* Las citas se leen como lo que son: palabras textuales de otra persona. */
+.proposal-quotes {
+    list-style: none;
+    padding: 0;
+    margin: 0.4rem 0;
+}
+
+.proposal-quotes li {
+    padding: 0.25rem 0;
+    font-size: 0.9rem;
+}
+
+.coverage-none {
+    background: var(--color-neutral-soft);
+    color: var(--color-text-muted);
+}
+
+.coverage-mentioned {
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
+}
+
+.coverage-partial {
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
+}
+
+.coverage-demonstrated {
+    background: var(--color-success-soft, var(--color-neutral-soft));
+    color: var(--color-success, var(--color-text-muted));
+}
+
+.interview-analysis {
+    border-top: 1px solid var(--color-border);
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+}
+
+.analysis-progress {
+    background: var(--color-info-soft);
+    border-radius: var(--radius);
+    padding: 0.6rem 0.8rem;
+}
+
+/* Grabación de entrevista (§24, Fase B). */
+.recording-bar {
+    background: var(--color-danger-soft);
+}
+
+.rec-dot {
+    display: inline-block;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: var(--color-danger);
+    animation: rec-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+    50% {
+        opacity: 0.25;
+    }
+}
+
+.level-meters {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin: 0.4rem 0 0.6rem;
+}
+
+.level-meter {
+    min-width: 9rem;
+}
+
+.level-bar {
+    height: 0.5rem;
+    background: var(--color-neutral-soft);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.level-fill {
+    height: 100%;
+    background: var(--color-success);
+    transition: width 80ms linear;
+}
+
+.upload-row {
+    margin-top: 0.75rem;
+}
+
+/* ── Grabaciones guardadas (§24) ── */
+
+.saved-recordings {
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+}
+
+.saved-recordings h4 {
+    margin: 0 0 0.25rem;
+}
+
+.recording-list {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.recording-item {
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.recording-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.recording-item .actions-row {
+    margin-top: 0.5rem;
+}
+
+.badge-ok {
+    background: var(--color-success-soft);
+    color: var(--color-success);
+}
+
+.badge-warn {
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
 }

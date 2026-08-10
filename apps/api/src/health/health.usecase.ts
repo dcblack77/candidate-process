@@ -12,10 +12,12 @@ export interface HealthResponseDTO {
     status: "ok";
     db: boolean;
     llm: boolean;
+    /** Servicio local de transcripción (§24, contenedor `voice-stt`). */
+    stt: boolean;
 }
 
-/** Tiempo máximo de espera del ping al modelo local (ms). */
-const LLM_PING_TIMEOUT_MS = 1500;
+/** Tiempo máximo de espera de los pings a los servicios locales (ms). */
+const PING_TIMEOUT_MS = 1500;
 
 @injectable()
 export class HealthUseCase {
@@ -28,7 +30,9 @@ export class HealthUseCase {
         return {
             status: "ok",
             db: this.checkDb(),
-            llm: await this.checkLlm(),
+            // En paralelo: dos servicios distintos, y el health no debe tardar
+            // la suma de los dos timeouts.
+            ...(await this.checkServices()),
         };
     }
 
@@ -41,15 +45,24 @@ export class HealthUseCase {
         }
     }
 
+    private async checkServices(): Promise<{ llm: boolean; stt: boolean }> {
+        const [llm, stt] = await Promise.all([
+            this.ping(this.env.LLM_BASE_URL),
+            this.ping(this.env.STT_BASE_URL),
+        ]);
+        return { llm, stt };
+    }
+
     /**
-     * Ping al modelo local (llama.cpp, API OpenAI-compatible). Si el modelo
-     * está caído o tarda más de 1,5 s, el health NO falla: solo reporta
-     * `llm: false`.
+     * Ping a un servicio local con API OpenAI-compatible. Si está caído o
+     * tarda más de 1,5 s, el health NO falla: solo reporta `false`. Que la
+     * transcripción esté caída lo tiene que ver la UI ANTES de que alguien
+     * grabe cincuenta minutos para nada.
      */
-    private async checkLlm(): Promise<boolean> {
+    private async ping(baseUrl: string): Promise<boolean> {
         try {
-            const response = await fetch(`${this.env.LLM_BASE_URL}/v1/models`, {
-                signal: AbortSignal.timeout(LLM_PING_TIMEOUT_MS),
+            const response = await fetch(`${baseUrl}/v1/models`, {
+                signal: AbortSignal.timeout(PING_TIMEOUT_MS),
             });
             return response.ok;
         } catch {

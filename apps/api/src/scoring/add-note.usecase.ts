@@ -2,7 +2,7 @@ import { inject, injectable } from "@expressots/core";
 import { CandidateRepository } from "../candidates/candidate.repository";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireWritableProcess,
 } from "../process/process.repository";
 import { AuditRepository } from "../shared/audit";
 import { AppError } from "../shared/errors";
@@ -33,8 +33,8 @@ export class AddNoteUseCase {
         assertValidId(id);
         const { notes } = parseNotesInput(body);
 
-        const active = requireActiveProcess(this.processes);
-        const candidate = this.candidates.findActiveInProcess(id, active.id);
+        const selected = requireWritableProcess(this.processes);
+        const candidate = this.candidates.findActiveInProcess(id, selected.id);
         if (!candidate) {
             throw new AppError("NOT_FOUND");
         }

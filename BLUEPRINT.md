@@ -93,7 +93,8 @@ Los criterios que pesan en el ranking son:
 | Producción | 15% | Debugging, operación y responsabilidad sobre sistemas vivos |
 | Stack | 10% | Cercanía con AWS, TypeScript y serverless como acelerador, no requisito |
 
-Cada criterio se puntúa de 1 a 5.
+Cada criterio se puntúa de 1 a 5. El análisis automático propone enteros; la
+revisión humana puede ajustar en pasos de 0,5.
 
 La puntuación tiene **dos niveles**: la rúbrica produce el *score de CV* y
 encima se calcula el *score final combinado* con la entrevista.
@@ -154,12 +155,13 @@ Cada pregunta debe incluir:
 Pregunta
 Dimensión evaluada
 Criterio relacionado
-Qué busca validar
 Respuesta ideal
 Señales positivas
 Señales de alerta
 Guía de puntuación
 ```
+
+"Qué busca validar" se retiró el 2026-08-07 por redundante (ver §14).
 
 ## 08. Autenticación Y Registro
 
@@ -242,11 +244,15 @@ Rutas previstas:
 ```text
 GET    /health
 
-GET    /process
-POST   /process
+GET    /process              # el proceso SELECCIONADO (404 si no hay)
+GET    /process/list         # todos los procesos, abiertos y archivados
+POST   /process              # crea uno nuevo y lo deja seleccionado
 PATCH  /process
-POST   /process/close
-DELETE /process
+POST   /process/:id/select   # cambia el proceso seleccionado
+POST   /process/close        # ARCHIVA el seleccionado (no borra)
+POST   /process/:id/reopen   # devuelve un archivado a escritura
+DELETE /process              # borra el seleccionado (confirmDelete)
+DELETE /process/:id          # borra uno concreto (confirmDelete)
 
 GET    /candidates
 POST   /candidates
@@ -276,6 +282,33 @@ Protecciones requeridas:
 - No se sirven archivos subidos desde rutas públicas.
 - Los exports excluyen datos innecesarios por defecto.
 
+### Transporte de la UI
+
+La API sigue atada a `127.0.0.1`. La **UI** se expone a la LAN por decisión
+explícita del usuario (2026-07-29) y desde el 2026-08-08 se sirve por **HTTPS
+con un certificado autofirmado** que se genera solo en `certs/`
+(`apps/web/dev/tls.ts`).
+
+El certificado **no aporta seguridad**: sigue sin haber autenticación (§08) y
+la protección real es la red de confianza. Existe por una razón mecánica: el
+navegador no da acceso al micrófono fuera de un contexto seguro, así que sin
+TLS grabar la entrevista (§24) era imposible desde cualquier equipo que no
+fuera el servidor. La alternativa —quitar la comprobación— no existe: la
+restricción es del navegador, no de la aplicación.
+
+Detalles que importan:
+
+- Los SAN cubren `localhost`, el nombre de red de la máquina y todas sus IPv4
+  no internas. Si el DHCP cambia la IP, el certificado deja de valer y se
+  regenera solo en el siguiente arranque.
+- El certificado persiste en disco a propósito: cada dispositivo acepta la
+  excepción una vez y no vuelve a preguntar. Regenerarlo la invalida, por eso
+  solo se hace cuando de verdad ha dejado de servir.
+- La clave privada se escribe con permisos `0600` y `certs/` está en
+  `.gitignore`.
+- `WEB_HTTPS=false` vuelve a HTTP en claro. Si la generación falla, la UI
+  arranca igualmente en HTTP con un aviso: mejor sin grabación que sin app.
+
 ## 11. Flujo Principal
 
 1. Admin abre la app local.
@@ -291,7 +324,14 @@ Protecciones requeridas:
 11. Admin revisa y edita puntuaciones.
 12. El sistema calcula ranking.
 13. Admin exporta una versión compartible para su líder.
-14. Al cerrar el proceso, Admin borra los datos.
+14. Admin archiva el proceso; el borrado de los datos es una acción aparte.
+
+Los pasos 8 y 9 **no son requisito del 10**: desde el 2026-08-07 se pueden
+generar preguntas en cuanto hay resumen de CV (paso 6), sin analizar. Analizar
+solo para poder preguntar gastaba una de las 5 regeneraciones de análisis por
+candidato (§16). Si el análisis existe, sus dudas y sus criterios flojos son la
+primera fuente de preguntas; si no, el prompt trabaja con el CV y el contexto
+del rol.
 
 ## 12. Modelo De Datos
 
@@ -301,10 +341,15 @@ Protecciones requeridas:
 id
 role_title
 role_context
-status
+status        # 'active' (abierto) | 'closed' (archivado, solo lectura)
 created_at
 closed_at
+is_current    # 1 en el proceso seleccionado, 0 en el resto (único)
 ```
+
+Puede haber varios procesos con `status='active'` a la vez. Lo que es único
+es `is_current`: el proceso sobre el que operan candidatos, análisis, ranking
+y export. Es estado de **servidor**, compartido por todos los clientes.
 
 ### Candidate
 
@@ -398,7 +443,10 @@ Reglas:
 - No inventar experiencia.
 - No asumir dominio por simple mención de una tecnología.
 - Diferenciar exposición superficial de responsabilidad real.
-- Priorizar resultados concretos.
+- Priorizar resultados concretos (entregables, sistemas en producción,
+  responsabilidad real). No se exigen métricas ni impacto cuantificado: ese
+  dato lo mide un equipo distinto al de desarrollo y el candidato no suele
+  conocerlo, así que su ausencia no penaliza.
 - Detectar transiciones tecnológicas demostradas.
 - Señalar qué debe validarse en entrevista.
 - Ignorar datos personales irrelevantes.
@@ -438,6 +486,9 @@ enunciado a 300.
 
 ## 14. Generación De Preguntas
 
+**El análisis previo NO es requisito** (2026-08-07): basta con que el CV esté
+procesado. Ver §11.
+
 Cada candidato debe recibir preguntas personalizadas según:
 
 - Brechas del CV.
@@ -453,38 +504,47 @@ Formato de pregunta:
 Pregunta:
 Dimensión:
 Criterio:
-Qué valida:
 Respuesta ideal:
 Señales positivas:
 Señales de alerta:
 Cómo puntuar:
 ```
 
+El campo **Qué valida** se retiró el 2026-08-07: repetía lo que ya dicen la
+pregunta, el criterio y la dimensión. La columna `interview_question.validates`
+se conserva con el texto de las preguntas generadas antes, pero ni se pide al
+modelo ni se muestra.
+
+**Brevedad (2026-08-07)**: el bloque se lee en voz alta durante la entrevista,
+así que prima que se entienda de un vistazo. Objetivos de longitud, marcados
+por el prompt (el JSON Schema pone un techo con holgura para no disparar
+reintentos): pregunta ~200 caracteres y **una sola** —nada de encadenar
+sub-preguntas—, respuesta ideal ~300 en 2-3 frases, **3** señales de cada tipo
+de una línea (~100), y cómo puntuar ~200 en total con una frase por nivel.
+
 Ejemplo:
 
 ```text
 Pregunta:
-Cuéntame una transición tecnológica concreta que hayas hecho. ¿Qué no sabías al inicio, qué hiciste para aprenderlo y qué entregaste después?
+Migraste el legacy a microservicios. ¿Cuál fue la decisión de diseño más difícil y por qué la tomaste así?
 
 Dimensión:
-Velocidad, aprendizaje y contribución.
+profundidad_vs_exposicion
 
 Criterio:
-Adaptabilidad.
+depth
 
 Respuesta ideal:
-Describe una transición específica, explica el contexto, identifica brechas iniciales, muestra método de aprendizaje y menciona entregables concretos posteriores.
+Nombra una decisión concreta (cómo partir el dominio, dónde poner la frontera). Explica la alternativa que descartó y por qué. Menciona cómo comprobó que funcionó.
 
 Señales positivas:
-Da fechas aproximadas, habla de decisiones técnicas, explica trade-offs y conecta aprendizaje con impacto real.
+Compara al menos dos alternativas reales. · Cita una métrica concreta. · Reconoce lo que salió mal.
 
 Señales de alerta:
-Responde con generalidades, solo menciona cursos o no puede explicar qué entregó después de la transición.
+Describe la migración sin ninguna decisión. · Justifica por moda, no por contexto. · No sabe si mejoró algo.
 
 Cómo puntuar:
-1 si no hay evidencia clara.
-3 si hubo adaptación parcial.
-5 si hubo transición demostrada, rápida y con contribución real.
+1: sin decisión propia. 3: decisión sin alternativas ni datos. 5: decisión, trade-off y validación.
 ```
 
 ## 15. Ranking
@@ -532,7 +592,13 @@ rúbrica de §06 se calcula solo con los cinco criterios.
 
 Restricciones:
 
-- Solo un proceso activo en MVP.
+- Varios procesos abiertos a la vez; **uno solo seleccionado** (decisión del
+  2026-08-07, deroga el "solo un proceso activo en MVP" original). Abrir un
+  proceso nuevo no cierra ni borra los anteriores.
+- La selección es **estado de servidor compartido**: cambiar de proceso desde
+  un equipo lo cambia para todos los que estén usando la aplicación.
+- Un proceso archivado (`status='closed'`) es de **solo lectura**: se
+  consulta y se exporta, pero toda escritura se rechaza con `PROCESS_CLOSED`.
 - Solo usuario Admin.
 - Solo rol objetivo único.
 - No se guardan CVs originales.
@@ -540,7 +606,8 @@ Restricciones:
 - No se expone la API fuera de local.
 - No se aceptan archivos fuera de los formatos permitidos.
 - No se muestran notas privadas completas en exports por defecto.
-- Al cerrar el proceso debe existir opción clara de borrado.
+- Al archivar el proceso debe existir opción clara de borrado definitivo,
+  separada y con confirmación explícita.
 
 Formatos permitidos:
 
@@ -560,6 +627,9 @@ Límites recomendados:
 | Regeneraciones de análisis por candidato | 5 |
 | Preguntas por candidato | 20 |
 | Exportaciones por sesión | 10 |
+| Tamaño máximo por pista de audio | 25 MB |
+| Caracteres de transcripción por entrevista | 120.000 (~2 h) |
+| Citas persistidas por propuesta | 3 de 300 caracteres |
 
 Rate limiting local:
 
@@ -569,6 +639,7 @@ Rate limiting local:
 | Análisis con Gemma4-e2b | 30 por hora |
 | Generación de preguntas | 60 por hora |
 | Regeneración de ranking | 30 por hora |
+| Análisis de audio de entrevista | 6 por hora |
 
 Aunque sea local, estos límites evitan bloqueos, abuso accidental y consumo excesivo del modelo.
 
@@ -614,9 +685,59 @@ Qué no se expone:
 
 Borrado:
 
-- Al cerrar el proceso, el sistema debe permitir borrar candidatos, resúmenes, evidencias, puntuaciones, preguntas, notas y ranking.
+- Archivar un proceso (`status='closed'`) **no borra nada**: lo deja en solo
+  lectura y sus datos siguen en `data/local.db` (decisión del 2026-08-07).
+- El borrado de candidatos, resúmenes, evidencias, puntuaciones, preguntas,
+  notas y ranking es una acción **aparte**, disponible en cualquier momento
+  sobre cualquier proceso.
 - El borrado definitivo debe pedir confirmación.
 - No debe quedar copia del CV original.
+
+El **audio de entrevista y su transcripción SÍ se persisten** desde el
+2026-08-10, en `RECORDINGS_DIR` (por defecto `data/interviews/<id>/`). Esto
+**deroga** la regla anterior, que decía que ni uno ni otra tocaban el disco.
+
+Motivo del cambio: el análisis vive en un job en memoria y cuando moría a
+medias —reinicio del backend, timeout, cancelación accidental— se perdía el
+trabajo Y el audio, porque el navegador tampoco lo conservaba. El resultado
+era una entrevista que ya había ocurrido y que no se podía volver a evaluar
+sin repetirla. Persistir convierte ese fallo irrecuperable en un reintento
+(`POST /candidates/:id/interview/analysis/from/:recordingId`), y persistir
+además la transcripción hace que el reintento no repita los ~4,5 minutos de
+whisper por pista.
+
+Lo que esto obliga a mantener:
+
+- **Nunca se sirve el audio.** No hay ninguna ruta que lo devuelva; se
+  reanaliza o se borra, igual que el CV original nunca se descarga.
+- **Visible y borrable siempre.** La pantalla del candidato lista lo guardado
+  con su tamaño, y `DELETE .../recordings/:id` borra archivos y fila. Purgar
+  el proceso borra los archivos ANTES que las filas, porque el `ON DELETE
+  CASCADE` se llevaría por delante la única pista de qué hay en disco.
+- **Barrido de huérfanas al arrancar**: los directorios sin fila que los
+  respalde se borran. Audio que la aplicación no sabe que existe es audio que
+  nadie puede borrar desde la aplicación.
+- **Tope de 5 grabaciones por candidato**, que se rechaza en vez de rotar: qué
+  se borra lo decide el evaluador.
+- **Sin caducidad automática** (decisión explícita): una grabación vive hasta
+  que alguien la borra.
+
+Las **citas** de las propuestas (`interview_answer_proposal.evidence`) siguen
+guardándose en la base, acotadas a 3 de 300 caracteres, para que el evaluador
+pueda auditar de dónde salió cada nota sugerida. Son dato PRIVADO al mismo
+nivel que `answer_notes` y quedan fuera de los exports.
+
+Consecuencia sobre el cifrado en reposo: la deuda **crece** con este cambio.
+Antes lo peor que había en disco eran citas de 300 caracteres; ahora hay
+grabaciones completas de voz de personas identificables, sin cifrar, en una
+máquina cuya UI es accesible desde la LAN sin autenticación. Conservar
+grabaciones de una entrevista también obliga a informar al candidato.
+
+Consecuencia de archivar sobre el cifrado en reposo: antes, cerrar un proceso
+purgaba sus datos y la ventana de exposición terminaba ahí. Ahora los datos de
+un proceso terminado **persisten hasta que alguien los borre a mano**, así que
+la deuda del cifrado en reposo pesa más que antes y hay que resolverla antes
+de acumular procesos con datos reales.
 
 ## 18. Integración Con Gemma4-e2b
 
@@ -736,10 +857,12 @@ ni en el estado del router (§17) y la vista NUNCA vuelve a llamar a la API
 
 ### Inicio
 
-- Ver proceso activo.
-- Crear proceso.
+- Ver el proceso en curso (o el aviso de solo lectura si está archivado).
+- Crear proceso / abrir otro sin cerrar el anterior.
+- Ver los demás procesos y cambiar de uno a otro.
+- Reabrir un proceso archivado.
 - Continuar análisis.
-- Cerrar proceso.
+- Archivar o borrar el proceso.
 
 ### Candidatos
 
@@ -749,6 +872,10 @@ ni en el estado del router (§17) y la vista NUNCA vuelve a llamar a la API
 - Ver estado de análisis.
 
 ### Detalle De Candidato
+
+- Grabar o subir el audio de la entrevista y ver el progreso del análisis.
+- Revisar la propuesta de cada pregunta con sus citas y aplicarla o
+  descartarla.
 
 - Resumen.
 - Evidencias.
@@ -772,11 +899,13 @@ ni en el estado del router (§17) y la vista NUNCA vuelve a llamar a la API
 - Descarga en Markdown o vista de impresión A4 (`/export/print`) para guardar
   en PDF desde el navegador.
 
-### Cerrar Proceso
+### Archivar O Borrar
 
-- Confirmar cierre.
+- Archivar: pasa a solo lectura conservando los datos. Sin confirmación —
+  es reversible desde Inicio (Reabrir).
 - Exportar antes de borrar.
-- Borrar datos del proceso.
+- Borrar definitivamente: doble confirmación en UI (checkbox + escribir el
+  nombre del rol) más `confirmDelete: true` en el backend.
 
 ## 22. Criterios De Aceptación
 
@@ -808,8 +937,10 @@ La primera versión está lista cuando:
 - Seguridad: estructura preparada desde el inicio.
 - IA: solo local con `Gemma4-e2b`.
 - CV original: no se conserva.
-- Datos: se borran al terminar el proceso.
-- Rol: único rol técnico.
+- Datos: se conservan al archivar el proceso y se borran con una acción
+  explícita y confirmada (decisión del 2026-08-07; antes el cierre purgaba).
+- Procesos: varios abiertos a la vez, uno seleccionado. Cada uno es un único
+  rol técnico y sus datos son independientes.
 - Visibilidad: notas y puntuaciones privadas para mí.
 - Exportación: versión limitada para mostrar al líder.
 - PDF: vía vista de impresión del navegador (decisión de 2026-07-29). Cero
@@ -819,3 +950,157 @@ La primera versión está lista cuando:
   puntuada el score es el del CV y se marca como provisional.
 - Análisis: contrasta el CV con la entrevista y baja los criterios que no se
   demostraron (§13).
+
+## 24. Entrevista Asistida: Audio, Transcripción Y Propuestas
+
+Decisión del 2026-08-07. Problema que resuelve: hoy solo se puede puntuar una
+pregunta que se haya formulado, pero en entrevistas reales el candidato aborda
+temas sin que se le pregunte. Como la nota de entrevista pesa el 70% del score
+final (§06), esas preguntas en blanco distorsionan el ranking.
+
+Flujo: se sube la grabación → se transcribe en local → el sistema detecta qué
+preguntas quedaron cubiertas y **propone** nota (1-10), notas y citas. El
+evaluador revisa y aplica. **Nada se aplica solo.**
+
+### Infraestructura
+
+`faster-whisper-server` local (contenedor `voice-stt` del stack de
+/opt/ai-server, perfil `voice`), API compatible con OpenAI en
+`STT_BASE_URL`. NO cuelga del router de :8080, que no enruta audio. Acepta
+WebM/Opus del navegador sin conversión. `GET /health` reporta `stt`.
+
+### Dos pistas, no una mezclada
+
+El micrófono y el audio de la videollamada se graban y transcriben **por
+separado**, y se fusionan por marca de tiempo etiquetando `CANDIDATO` / `SALA`.
+whisper no diariza: mezclarlos haría imposible distinguir "el candidato
+explicó cómo particionó el dominio" de "el entrevistador preguntó cómo lo
+particionó", que es el falso positivo a evitar y es irrecuperable aguas abajo.
+
+### Dos etapas de mapeo
+
+`gemma-4-E2B` (2B) no mapea 8-20 preguntas contra 45.000 caracteres de una
+tacada. Se parte en:
+
+1. **Enrutado** (`prompts/map-transcript-topics.md`), una llamada por
+   fragmento: qué temas de la lista salen en ESTE fragmento.
+2. **Evaluación** (`prompts/assess-question-coverage.md`), una llamada por
+   pregunta sin puntuar: cobertura, nota propuesta y citas.
+
+Troceado con solape de 20 s y sin partir nunca un segmento de whisper. Si el
+enrutado no asigna nada a una pregunta, entra un **respaldo léxico** para que
+ninguna quede sin evaluar en silencio.
+
+### Niveles de cobertura
+
+```text
+no_abordado          el tema no aparece
+mencionado           se nombra sin contenido propio — NO es cobertura
+abordado_parcial     habla del tema pero no cubre lo esencial
+abordado_demostrado  lo explica con detalle concreto
+```
+
+### Cómo se evitan los falsos positivos
+
+Cuatro capas **en código**, no en el prompt (un modelo de 2B afirma
+`abordado_demostrado` con una cita adornada sin despeinarse):
+
+1. Atribución de hablante por construcción (pistas separadas).
+2. Verificación literal: cada cita debe aparecer en lo que dijo el CANDIDATO.
+3. Democión: sin citas verificadas, `abordado_*` baja a `mencionado` y la nota
+   se anula.
+4. Suelo de longitud: `abordado_demostrado` exige ≥180 caracteres de citas
+   verificadas; `abordado_parcial`, ≥60.
+
+Medido contra el modelo real el 2026-08-07: 4/4 niveles correctos sobre una
+transcripción con los cuatro casos conocidos.
+
+### Qué se persiste y qué no
+
+Revisado el **2026-08-10**. Hasta esa fecha no se persistía ni el audio ni la
+transcripción, y el precio asumido era que un reinicio a mitad de análisis lo
+perdía todo. Ese precio resultó ser demasiado alto en uso real: al caerse el
+job desaparecía también el audio —el navegador solo lo tenía en RAM— y una
+entrevista ya celebrada se quedaba sin poder evaluarse.
+
+- **SÍ, en disco** (`RECORDINGS_DIR/<recordingId>/`): las pistas de audio tal
+  y como se subieron y `transcript.json`. La transcripción se escribe en
+  cuanto whisper responde y ANTES de la primera llamada al modelo, que es lo
+  que hace que un fallo en el enrutado o la evaluación no cueste retranscribir.
+- **SÍ, en la base**: la fila `interview_recording` (índice: dónde están los
+  archivos, qué pista es la del candidato, duración y cómo acabó el último
+  análisis) y las propuestas con hasta 3 citas de ≤300 caracteres.
+- **NO**: nada más. El buffer de audio en RAM se sigue poniendo a cero en
+  cuanto whisper responde, y la copia que subió el navegador no sobrevive al
+  request.
+
+El **estado del job sigue en memoria**: lo que se recupera de un análisis
+caído no es el job, es la grabación. Reintentar crea un job nuevo sobre la
+misma grabación, y por eso `interview_recording` guarda `last_status` — una
+grabación que quedó en `running` sin job vivo es exactamente la señal de "esto
+se cayó, reintenta".
+
+Escritura **atómica** (`.tmp` + `rename`) en los dos archivos: el fallo que
+motivó todo esto es un proceso que muere a mitad del trabajo, y un
+`transcript.json` a medio escribir sería indistinguible de uno bueno.
+
+### Rutas
+
+```text
+POST   /candidates/:id/interview/analysis            (202, multipart mic/tab)
+POST   /candidates/:id/interview/analysis/from/:recordingId   (202, JSON)
+GET    /candidates/:id/interview/analysis/:jobId
+DELETE /candidates/:id/interview/analysis/:jobId
+GET    /candidates/:id/interview/recordings
+DELETE /candidates/:id/interview/recordings/:recordingId
+PATCH  /candidates/:id/interview/proposals/:proposalId
+```
+
+Reanalizar NO admite cambiar `candidateSource`: la transcripción guardada ya
+está atribuida a un hablante, y reinterpretarla al revés convertiría lo que
+preguntó el entrevistador en algo que "demostró" el candidato. Para cambiarla
+hay que volver a subir el audio.
+
+Borrar una grabación usa `canDeleteData`, no `canTranscribeInterview`: destruye
+datos de forma irreversible.
+
+Aplicar una propuesta NO se hace en esas rutas: se manda el
+`PATCH /candidates/:id/questions/:qid/answer` de siempre y después se marca la
+propuesta como `applied`. La puntuación real solo la escribe el evaluador por
+su camino de siempre.
+
+### Captura desde el navegador
+
+Dos formas de aportar el audio:
+
+- **Grabar** desde la aplicación: micrófono (la sala) y audio de la pestaña de
+  la videollamada, en **dos pistas separadas**. `getDisplayMedia` se pide con
+  `video: true` porque Chrome no enseña la casilla de "compartir el audio de
+  la pestaña" en una petición solo-audio; el vídeo se descarta en el acto.
+  Si el usuario no marca esa casilla, se detecta ANTES de grabar y se le da la
+  instrucción exacta. Durante la grabación hay cronómetro y un medidor de
+  nivel por pista, para descubrir en el minuto 1 que algo no suena y no en el
+  50.
+- **Subir un archivo**, que funciona siempre. **Aviso**: un archivo con toda
+  la conversación en una sola pista NO permite separar hablantes, así que el
+  sistema puede tomar por demostrado algo que en realidad preguntó el
+  entrevistador. La interfaz lo advierte donde se sube.
+
+`getUserMedia`/`getDisplayMedia` solo existen en contexto seguro (HTTPS o
+localhost). No es una comprobación de la aplicación que se pueda relajar:
+sobre `http://` fuera de localhost esas funciones no existen en el navegador.
+Por eso el servidor de desarrollo sirve **HTTPS con certificado propio**
+(2026-08-08, ver §10), y grabar funciona también desde la LAN. Si aun así se
+llega por HTTP en claro, la pantalla lo detecta, ofrece la dirección `https://`
+equivalente y deja el camino de subir el archivo; nunca se rompe.
+
+### Calidad de la transcripción
+
+Verificado de punta a punta el 2026-08-07 con navegador real: el flujo
+completo funciona y discrimina bien los cuatro niveles de cobertura. El punto
+débil medido es `Systran/faster-whisper-base`, que en español técnico
+degrada bastante ("throttles en CloudWatch" → "trotles en trogwatch"). Eso
+ensucia las citas que lee el evaluador y dificulta el emparejamiento.
+Pasar a `STT_MODEL=Systran/faster-whisper-small` es cambiar una variable más
+un `POST /api/pull/{model}` al contenedor.
+

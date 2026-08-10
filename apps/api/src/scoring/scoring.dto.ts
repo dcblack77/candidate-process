@@ -100,10 +100,10 @@ function assertPlainObject(
     }
 }
 
-function isInt1to5(value: unknown): value is number {
+function isHalfStep1to5(value: unknown): value is number {
     return (
         typeof value === "number" &&
-        Number.isInteger(value) &&
+        Number.isInteger(value * 2) &&
         value >= 1 &&
         value <= 5
     );
@@ -111,7 +111,7 @@ function isInt1to5(value: unknown): value is number {
 
 /**
  * Valida el body parcial de PATCH /candidates/:id/score:
- * criterios enteros 1-5, confidence 0-1, manualNotes texto. Rechaza campos
+ * criterios 1-5 en pasos de 0,5, confidence 0-1, manualNotes texto. Rechaza campos
  * desconocidos y cuerpos sin ningún campo editable.
  */
 export function parseScorePatchInput(body: unknown): ScorePatchInput {
@@ -133,10 +133,10 @@ export function parseScorePatchInput(body: unknown): ScorePatchInput {
         if (value === undefined) {
             continue;
         }
-        if (!isInt1to5(value)) {
+        if (!isHalfStep1to5(value)) {
             throw new AppError(
                 "INVALID_INPUT",
-                "Cada criterio debe ser un entero entre 1 y 5.",
+                "Cada criterio debe estar entre 1 y 5 en pasos de 0,5.",
             );
         }
         criteria[criterion] = value;

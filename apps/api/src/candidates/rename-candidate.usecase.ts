@@ -1,7 +1,7 @@
 import { inject, injectable } from "@expressots/core";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireWritableProcess,
 } from "../process/process.repository";
 import { AuditRepository } from "../shared/audit";
 import { AppError } from "../shared/errors";
@@ -27,9 +27,9 @@ export class RenameCandidateUseCase {
     execute(id: unknown, body: unknown): CandidateListItemDTO {
         assertValidId(id);
         const { name } = parseCandidateNameInput(body);
-        const active = requireActiveProcess(this.processes);
+        const selected = requireWritableProcess(this.processes);
 
-        const row = this.candidates.findActiveInProcess(id, active.id);
+        const row = this.candidates.findActiveInProcess(id, selected.id);
         if (!row) {
             throw new AppError("NOT_FOUND");
         }
@@ -37,7 +37,7 @@ export class RenameCandidateUseCase {
         const updated = this.candidates.rename(row.id, name);
         // Auditoría sin datos sensibles: nunca el nombre anterior ni el nuevo.
         this.audit.logEvent("candidate.renamed", "candidate", row.id, {
-            processId: active.id,
+            processId: selected.id,
         });
         return toCandidateListItem(updated);
     }

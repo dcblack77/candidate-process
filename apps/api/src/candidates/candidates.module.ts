@@ -10,7 +10,7 @@ import { RenameCandidateUseCase } from "./rename-candidate.usecase";
 /**
  * Módulo del dominio Candidates. Depende de ProcessRepository (bindeado en
  * ProcessModule, mismo contenedor): un candidato solo existe dentro del
- * proceso activo.
+ * proceso seleccionado.
  */
 export const CandidatesModule = CreateModule(
     [CandidatesController],

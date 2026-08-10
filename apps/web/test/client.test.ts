@@ -106,4 +106,33 @@ describe("api/client", () => {
         });
         expect(JSON.parse(String(call.init.body))).toEqual({ name: "Ada" });
     });
+
+    it("updateProcess hace PATCH /process con el body JSON (incluido roleContext null)", async () => {
+        const { calls } = installFetchMock({
+            "PATCH /api/process": () =>
+                jsonResponse({
+                    id: "p1",
+                    roleTitle: "Rol editado",
+                    roleContext: null,
+                    status: "active",
+                    createdAt: "2026-07-01T09:00:00.000Z",
+                    closedAt: null,
+                }),
+        });
+
+        const result = await api.updateProcess({
+            roleTitle: "Rol editado",
+            roleContext: null,
+        });
+        expect(result.roleContext).toBeNull();
+        const call = calls[0]!;
+        expect(call.init.method).toBe("PATCH");
+        expect(call.init.headers).toEqual({
+            "Content-Type": "application/json",
+        });
+        expect(JSON.parse(String(call.init.body))).toEqual({
+            roleTitle: "Rol editado",
+            roleContext: null,
+        });
+    });
 });

@@ -3,7 +3,7 @@ import { Criterion, CRITERIA } from "../ai/schemas/common";
 import { CandidateRepository } from "../candidates/candidate.repository";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireCurrentProcess,
 } from "../process/process.repository";
 import { QuestionRepository } from "../questions/question.repository";
 import { interviewScoreOf } from "../questions/questions.dto";
@@ -73,7 +73,7 @@ export class ExportUseCase {
 
     execute(body: unknown): ExportResponseDTO {
         const { include, format } = parseExportInput(body);
-        const active = requireActiveProcess(this.processes);
+        const selected = requireCurrentProcess(this.processes);
 
         if (this.session.count >= MAX_EXPORTS_PER_SESSION) {
             throw new AppError(
@@ -96,7 +96,7 @@ export class ExportUseCase {
             confidence: number | null;
         }> = [];
 
-        for (const candidate of this.candidates.listActive(active.id)) {
+        for (const candidate of this.candidates.listActive(selected.id)) {
             const score = this.scores.findByCandidate(candidate.id);
             if (
                 !score ||
@@ -164,14 +164,14 @@ export class ExportUseCase {
             this.audit.logEvent(
                 "export.included_sensitive",
                 "process",
-                active.id,
+                selected.id,
                 {
                     privateNotes: true,
                     format,
                 },
             );
         }
-        this.audit.logEvent("export.generated", "process", active.id, {
+        this.audit.logEvent("export.generated", "process", selected.id, {
             candidatesIncluded: entries.length,
             sensitiveIncluded,
             format,
@@ -185,10 +185,10 @@ export class ExportUseCase {
         if (format === "structured") {
             return {
                 format: "structured",
-                filename: buildExportFilename(active.role_title, date, "pdf"),
+                filename: buildExportFilename(selected.role_title, date, "pdf"),
                 generatedAt: generatedAt.toISOString(),
-                roleTitle: active.role_title,
-                roleContext: active.role_context,
+                roleTitle: selected.role_title,
+                roleContext: selected.role_context,
                 weights: WEIGHTS,
                 scoreWeights: { cv: CV_WEIGHT, interview: INTERVIEW_WEIGHT },
                 entries: toExportCandidateDTOs(entries, include),
@@ -200,9 +200,9 @@ export class ExportUseCase {
 
         return {
             format: "markdown",
-            filename: buildExportFilename(active.role_title, date, "md"),
+            filename: buildExportFilename(selected.role_title, date, "md"),
             content: buildExportMarkdown({
-                roleTitle: active.role_title,
+                roleTitle: selected.role_title,
                 date,
                 include,
                 entries,

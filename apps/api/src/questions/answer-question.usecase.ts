@@ -2,7 +2,7 @@ import { inject, injectable } from "@expressots/core";
 import { CandidateRepository } from "../candidates/candidate.repository";
 import {
     ProcessRepository,
-    requireActiveProcess,
+    requireWritableProcess,
 } from "../process/process.repository";
 import { AuditRepository } from "../shared/audit";
 import { AppError } from "../shared/errors";
@@ -21,7 +21,7 @@ import {
  * a una pregunta concreta.
  *
  * - Permiso canEditScores: es evaluación, igual que editar puntuaciones.
- * - 404 si no hay proceso activo, si el candidato no existe/está borrado o
+ * - 404 si no hay proceso seleccionado, si el candidato no existe/está borrado o
  *   si la pregunta no existe O NO PERTENECE a ese candidato (mismo 404 en
  *   los tres casos: no se revela cuál).
  * - Fusión con lo existente: un campo ausente se deja como estaba,
@@ -53,10 +53,10 @@ export class AnswerQuestionUseCase {
         assertValidId(questionId);
         const input = parseAnswerInput(body);
 
-        const active = requireActiveProcess(this.processes);
+        const selected = requireWritableProcess(this.processes);
         const candidate = this.candidates.findActiveInProcess(
             candidateId,
-            active.id,
+            selected.id,
         );
         if (!candidate) {
             throw new AppError("NOT_FOUND");

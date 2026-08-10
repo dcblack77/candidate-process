@@ -127,6 +127,14 @@ export function makeAiEnv(overrides: Partial<AppEnv> = {}): AppEnv {
         LLM_TIMEOUT_MS: 5_000,
         LLM_MAX_RETRIES: 1,
         LLM_CONTEXT_TOKENS: 22_016,
+        // Puerto 9 (discard): un test que hable con el STT sin mockearlo
+        // falla rápido en vez de colgarse diez minutos.
+        STT_BASE_URL: "http://127.0.0.1:9",
+        STT_MODEL: "test-stt-model",
+        STT_LANGUAGE: "es",
+        STT_TIMEOUT_MS: 5_000,
+        // Directorio temporal: ningún test escribe grabaciones en data/.
+        RECORDINGS_DIR: mkdtempSync(path.join(os.tmpdir(), "recordings-")),
         PROMPTS_DIR: os.tmpdir(),
         REPO_ROOT: process.cwd(),
         ...overrides,

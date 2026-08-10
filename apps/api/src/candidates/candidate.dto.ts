@@ -1,3 +1,4 @@
+import { ProposalDTO } from "../interview/interview.dto";
 import { InterviewQuestionDTO } from "../questions/questions.dto";
 import {
     emptyInterviewScore,
@@ -40,6 +41,11 @@ export interface CandidateDetailDTO extends CandidateListItemDTO {
      * son todos null.
      */
     interview: InterviewScore;
+    /**
+     * Propuestas VIVAS del análisis de audio (§24). Solo las `proposed`: las
+     * ya aplicadas o descartadas no pintan nada en la pantalla.
+     */
+    proposals: ProposalDTO[];
     updatedAt: string;
 }
 
@@ -78,6 +84,7 @@ export function toCandidateDetail(
     score: CandidateScoreDTO | null = null,
     questions: InterviewQuestionDTO[] = [],
     interview: InterviewScore = emptyInterviewScore(),
+    proposals: ProposalDTO[] = [],
 ): CandidateDetailDTO {
     return {
         ...toCandidateListItem(row),
@@ -87,6 +94,7 @@ export function toCandidateDetail(
         score,
         questions,
         interview,
+        proposals,
         updatedAt: row.updated_at,
     };
 }

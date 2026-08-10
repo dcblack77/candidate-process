@@ -6,10 +6,15 @@ import { newId } from "../shared/ids";
 /**
  * Repositorio del proceso de selección (BLUEPRINT §12, §16).
  *
- * Invariante: solo puede existir UN proceso activo. Se comprueba en código
- * (usecases) y además lo fuerza la base de datos con el índice único parcial
- * `idx_process_single_active`; si dos escrituras compiten, la segunda recibe
- * la violación de unicidad y se traduce a ACTIVE_PROCESS_EXISTS.
+ * Desde 2026-08-07 puede haber VARIOS procesos abiertos a la vez. Lo que es
+ * único es el proceso SELECCIONADO (`is_current`), que determina sobre qué
+ * proceso operan candidatos, análisis, ranking y export.
+ *
+ * La selección es estado de servidor compartido por todos los clientes
+ * (decisión explícita del usuario): si alguien cambia de proceso desde otro
+ * equipo de la LAN, cambia para todos. La unicidad la fuerza el índice
+ * parcial `idx_process_single_current`; que no haya ninguno seleccionado es
+ * un estado válido (base vacía, o se borró el que estaba seleccionado).
  */
 
 export interface ProcessRow {
@@ -19,9 +24,16 @@ export interface ProcessRow {
     status: "active" | "closed";
     created_at: string;
     closed_at: string | null;
+    /** 1 si es el proceso seleccionado; 0 en el resto. */
+    is_current: number;
 }
 
-/** Campos editables del proceso activo. */
+/** Fila de la lista de procesos: incluye cuántos candidatos vivos tiene. */
+export interface ProcessListRow extends ProcessRow {
+    candidate_count: number;
+}
+
+/** Campos editables de un proceso. */
 export interface ProcessUpdate {
     roleTitle?: string;
     roleContext?: string | null;
@@ -34,36 +46,51 @@ export interface ProcessPurgeCounts {
     questionsDeleted: number;
 }
 
-/** ¿Es una violación de unicidad de SQLite (índice único parcial incluido)? */
-function isUniqueViolation(error: unknown): boolean {
-    return (
-        error instanceof Error &&
-        "code" in error &&
-        (error as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE"
-    );
+/**
+ * Devuelve el proceso SELECCIONADO o lanza NOT_FOUND. Lo usan los usecases
+ * de solo lectura (listar candidatos, ranking, export): un proceso archivado
+ * se puede consultar con normalidad.
+ */
+export function requireCurrentProcess(
+    repository: ProcessRepository,
+): ProcessRow {
+    const current = repository.findCurrent();
+    if (!current) {
+        throw new AppError(
+            "NOT_FOUND",
+            "No hay ningún proceso seleccionado.",
+        );
+    }
+    return current;
 }
 
 /**
- * Devuelve el proceso activo o lanza NOT_FOUND. Compartido por los usecases
- * de process y de candidates (los candidatos siempre cuelgan del activo).
+ * Igual que `requireCurrentProcess` pero además exige que el proceso admita
+ * escrituras. Un proceso archivado (status='closed') conserva sus datos en
+ * SOLO LECTURA: añadir candidatos, analizar, puntuar o anotar sobre él se
+ * rechaza con PROCESS_CLOSED (409).
+ *
+ * Lo usan todos los usecases que mutan datos; la comprobación va en backend
+ * y no depende de que la UI oculte botones (§09).
  */
-export function requireActiveProcess(
+export function requireWritableProcess(
     repository: ProcessRepository,
 ): ProcessRow {
-    const active = repository.findActive();
-    if (!active) {
-        throw new AppError("NOT_FOUND", "No hay ningún proceso activo.");
+    const current = requireCurrentProcess(repository);
+    if (current.status === "closed") {
+        throw new AppError("PROCESS_CLOSED");
     }
-    return active;
+    return current;
 }
 
 @injectable()
 export class ProcessRepository {
     constructor(@inject(DB) private readonly db: Database) {}
 
-    findActive(): ProcessRow | undefined {
+    /** El proceso seleccionado, sea cual sea su estado. */
+    findCurrent(): ProcessRow | undefined {
         return this.db
-            .prepare("SELECT * FROM process WHERE status = 'active'")
+            .prepare("SELECT * FROM process WHERE is_current = 1")
             .get() as ProcessRow | undefined;
     }
 
@@ -74,24 +101,38 @@ export class ProcessRepository {
     }
 
     /**
-     * Crea un proceso activo. Si la base de datos detecta que ya hay uno
-     * (índice único parcial), traduce el error a ACTIVE_PROCESS_EXISTS:
-     * la DB es la última línea de defensa frente a carreras.
+     * Todos los procesos, con el número de candidatos vivos de cada uno.
+     * Orden: abiertos antes que archivados y, dentro de cada grupo, el más
+     * reciente primero (es el que se suele querer retomar).
+     */
+    listAll(): ProcessListRow[] {
+        return this.db
+            .prepare(
+                `SELECT p.*,
+                        (SELECT COUNT(*) FROM candidate c
+                          WHERE c.process_id = p.id AND c.deleted_at IS NULL)
+                        AS candidate_count
+                   FROM process p
+                  ORDER BY (p.status = 'closed'), p.created_at DESC`,
+            )
+            .all() as ProcessListRow[];
+    }
+
+    /**
+     * Crea un proceso abierto y lo deja seleccionado. Ya no falla si hay
+     * otros procesos abiertos: ese era el invariante que este cambio deroga.
      */
     create(roleTitle: string, roleContext: string | null): ProcessRow {
         const id = newId();
-        try {
+        this.db.transaction(() => {
+            this.clearCurrent();
             this.db
                 .prepare(
-                    "INSERT INTO process (id, role_title, role_context) VALUES (?, ?, ?)",
+                    `INSERT INTO process (id, role_title, role_context, is_current)
+                     VALUES (?, ?, ?, 1)`,
                 )
                 .run(id, roleTitle, roleContext);
-        } catch (error) {
-            if (isUniqueViolation(error)) {
-                throw new AppError("ACTIVE_PROCESS_EXISTS");
-            }
-            throw error;
-        }
+        })();
         return this.findById(id) as ProcessRow;
     }
 
@@ -116,6 +157,48 @@ export class ProcessRepository {
     }
 
     /**
+     * Marca `id` como proceso seleccionado. El deseleccionar-y-seleccionar va
+     * en una transacción porque el índice único parcial rechazaría el estado
+     * intermedio con dos filas a 1.
+     */
+    select(id: string): ProcessRow {
+        this.db.transaction(() => {
+            this.clearCurrent();
+            this.db
+                .prepare("UPDATE process SET is_current = 1 WHERE id = ?")
+                .run(id);
+        })();
+        return this.findById(id) as ProcessRow;
+    }
+
+    /**
+     * Archiva un proceso: status='closed' + closed_at. Los datos derivados
+     * (candidatos, puntuaciones, preguntas, notas) se CONSERVAN en solo
+     * lectura; el borrado es una acción aparte (`purge`).
+     */
+    close(id: string): ProcessRow {
+        this.db
+            .prepare(
+                `UPDATE process
+                    SET status = 'closed',
+                        closed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                  WHERE id = ?`,
+            )
+            .run(id);
+        return this.findById(id) as ProcessRow;
+    }
+
+    /** Reabre un proceso archivado: vuelve a admitir escrituras. */
+    reopen(id: string): ProcessRow {
+        this.db
+            .prepare(
+                "UPDATE process SET status = 'active', closed_at = NULL WHERE id = ?",
+            )
+            .run(id);
+        return this.findById(id) as ProcessRow;
+    }
+
+    /**
      * Purga un proceso: cuenta lo que va a desaparecer y borra la fila
      * `process`; las FK ON DELETE CASCADE arrastran candidatos, puntuaciones
      * y preguntas. Todo dentro de una transacción: o se borra todo o nada.
@@ -123,6 +206,10 @@ export class ProcessRepository {
      * Decisión (plan §Esquema SQL): la fila `process` NO se conserva como
      * traza; la única huella del proceso es el app_event que registra el
      * usecase con estos conteos.
+     *
+     * Si el proceso borrado era el seleccionado, pasa a estarlo el proceso
+     * más reciente que quede (o ninguno, si era el último): así la app nunca
+     * queda apuntando a un proceso inexistente.
      */
     purge(id: string): ProcessPurgeCounts {
         return this.db.transaction((): ProcessPurgeCounts => {
@@ -152,7 +239,27 @@ export class ProcessRepository {
                     .get(id) as { total: number }
             ).total;
 
+            const wasCurrent =
+                (this.findById(id)?.is_current ?? 0) === 1;
+
             this.db.prepare("DELETE FROM process WHERE id = ?").run(id);
+
+            if (wasCurrent) {
+                const fallback = this.db
+                    .prepare(
+                        `SELECT id FROM process
+                          ORDER BY (status = 'closed'), created_at DESC
+                          LIMIT 1`,
+                    )
+                    .get() as { id: string } | undefined;
+                if (fallback) {
+                    this.db
+                        .prepare(
+                            "UPDATE process SET is_current = 1 WHERE id = ?",
+                        )
+                        .run(fallback.id);
+                }
+            }
 
             return {
                 candidatesDeleted: candidates,
@@ -160,5 +267,10 @@ export class ProcessRepository {
                 questionsDeleted: questions,
             };
         })();
+    }
+
+    /** Deja la selección vacía. Siempre dentro de una transacción. */
+    private clearCurrent(): void {
+        this.db.prepare("UPDATE process SET is_current = 0 WHERE is_current = 1").run();
     }
 }
