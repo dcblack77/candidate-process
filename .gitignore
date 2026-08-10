@@ -5,14 +5,49 @@ node_modules/
 dist/
 *.tsbuildinfo
 
-# Base de datos local (nunca se versionan datos de candidatos)
-data/*.db
-data/*.db-*
+# ─────────────────────────────────────────────────────────────────────────────
+# DATOS DE CANDIDATOS — nunca se versionan.
+#
+# Se ignora TODO `data/` salvo el .gitkeep, en vez de listar extensiones
+# concretas. Es deliberado: esta carpeta acumula datos personales de personas
+# reales (resúmenes de CV, notas privadas, citas literales de entrevistas y las
+# grabaciones de audio), y una regla por extensión falla en cuanto aparece un
+# archivo con un nombre que nadie previó. Aquí el fallo por defecto tiene que
+# ser "no subir".
+# ─────────────────────────────────────────────────────────────────────────────
+data/*
+!data/.gitkeep
 
-# Entorno
+# ─────────────────────────────────────────────────────────────────────────────
+# SECRETOS Y MATERIAL CRIPTOGRÁFICO
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Entorno real. `.env.example` es la plantilla y SÍ se versiona.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+
+# Certificado del servidor de desarrollo: se regenera solo y la clave privada
+# NUNCA se versiona.
+certs/
+
+# Claves y certificados en cualquier ruta, por si alguna herramienta los deja
+# fuera de `certs/`.
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# Archivos de audio sueltos: en este proyecto solo pueden ser grabaciones de
+# entrevistas reales. Los fixtures de test no son audio.
+*.webm
+*.wav
+*.mp3
+*.m4a
+*.ogg
 
 # Cobertura y logs
 coverage/
