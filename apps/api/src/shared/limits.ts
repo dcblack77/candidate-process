@@ -68,6 +68,14 @@ export const MAX_QUOTE_CHARS = 300;
  */
 export const MAX_RECORDINGS_PER_CANDIDATE = 5;
 
+/**
+ * Candidatos por comparación (vista Comparativa, §15/§21). Acota el prompt de
+ * `compare-candidates` al presupuesto de contexto del modelo local y, sobre
+ * todo, a lo que un modelo de 2B puede contrastar de una vez con criterio.
+ * Comparar a más se hace en tandas.
+ */
+export const MAX_COMPARISON_CANDIDATES = 5;
+
 /** Ventana de rate limiting local: una hora, en milisegundos. */
 export const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
@@ -86,6 +94,12 @@ export const RATE_LIMITS_PER_HOUR = {
      * ~15 minutos de CPU entre transcripción y modelo.
      */
     INTERVIEW: 6,
+    /**
+     * Comparación cualitativa de candidatos con el modelo. Cada una es un
+     * prompt con hasta MAX_COMPARISON_CANDIDATES análisis completos y no se
+     * persiste, así que se acota más que el análisis individual.
+     */
+    COMPARE: 20,
 } as const;
 
 export type RateLimitedAction = keyof typeof RATE_LIMITS_PER_HOUR;

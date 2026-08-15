@@ -27,6 +27,8 @@ export const canExportResults: PermissionCheck = (user) => isAdmin(user);
 export const canTranscribeInterview: PermissionCheck = (user) => isAdmin(user);
 export const canCloseProcess: PermissionCheck = (user) => isAdmin(user);
 export const canDeleteData: PermissionCheck = (user) => isAdmin(user);
+/** Comparar candidatos entre sí con el modelo (vista Comparativa, §21). */
+export const canCompareCandidates: PermissionCheck = (user) => isAdmin(user);
 
 /**
  * Exige un permiso concreto: si la comprobación falla, lanza
