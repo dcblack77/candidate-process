@@ -261,6 +261,9 @@ PATCH  /candidates/:id
 DELETE /candidates/:id
 
 POST   /candidates/:id/cv/extract
+POST   /candidates/cv/bulk           # carga masiva: N CVs → N candidatos (202 + job)
+GET    /candidates/cv/bulk/:jobId    # progreso del lote
+DELETE /candidates/cv/bulk/:jobId    # cancelar el lote
 POST   /candidates/:id/analyze
 POST   /candidates/:id/questions
 PATCH  /candidates/:id/questions/:questionId/answer
@@ -314,7 +317,9 @@ Detalles que importan:
 1. Admin abre la app local.
 2. Crea un proceso para un único rol.
 3. Añade candidatos por nombre.
-4. Carga un CV por candidato.
+4. Carga un CV por candidato — o, desde el 2026-08-15, **varios CVs de
+   golpe** (§16, "Carga masiva de CVs"), que crean sus candidatos con el
+   nombre deducido del archivo. Los pasos 3 y 4 se funden en uno.
 5. El sistema extrae texto.
 6. El sistema genera un resumen estructurado.
 7. El CV original se borra.
@@ -623,6 +628,7 @@ Límites recomendados:
 |---|---:|
 | Tamaño máximo por CV | 10 MB |
 | Texto máximo extraído por CV | 50.000 caracteres |
+| Archivos por lote en la carga masiva | 30 |
 | Candidatos por proceso | 100 |
 | Regeneraciones de análisis por candidato | 5 |
 | Preguntas por candidato | 20 |
@@ -635,13 +641,90 @@ Rate limiting local:
 
 | Acción | Límite |
 |---|---:|
-| Extracción de CV | 20 por hora |
+| Extracción de CV (suelta o en lote; cada CV cuenta uno) | 100 por hora |
 | Análisis con Gemma4-e2b | 30 por hora |
 | Generación de preguntas | 60 por hora |
 | Regeneración de ranking | 30 por hora |
 | Análisis de audio de entrevista | 6 por hora |
 
 Aunque sea local, estos límites evitan bloqueos, abuso accidental y consumo excesivo del modelo.
+
+La extracción era 20 por hora hasta el 2026-08-15. Estaba calibrada para la
+subida uno a uno; con la carga masiva un solo lote de veinte la agotaba y el
+segundo esperaba una hora, que es justo el dolor que la carga masiva quería
+quitar. Ahora iguala el tope de candidatos por proceso: un proceso entero
+cabe en una sentada y el limitador sigue cortando bucles descontrolados. La
+carga real del modelo la acota la cola de concurrencia 1 de `LlmClient`, no
+este número.
+
+### Carga masiva de CVs (2026-08-15)
+
+Meter candidatos uno a uno —crear el candidato y subir su CV por separado—
+era inviable con los veinte CVs de una oferta. `POST /candidates/cv/bulk`
+recibe varios archivos y crea un candidato por cada uno.
+
+Cómo se reparte el trabajo, y por qué:
+
+- **En el request** se hace todo lo rápido y todo lo que debe morir con él:
+  validar el lote entero, crear los candidatos y **extraer el texto** de
+  cada archivo. Al responder, los buffers se anulan: el CV original no
+  sobrevive al request ni en RAM (misma garantía que la subida individual;
+  el middleware sigue siendo `memoryStorage`, `diskStorage` sigue prohibido).
+- **En segundo plano** un job en memoria pasa el texto de cada candidato por
+  el modelo, uno detrás de otro, y suelta el texto en cuanto tiene el
+  resumen. Resumir treinta CVs son minutos y ningún request HTTP debe vivir
+  tanto. La respuesta es 202 con el job y la UI hace polling. Solo un lote a
+  la vez: la cola del modelo es de 1 y un segundo lote no iría más rápido.
+- El job es **volátil a propósito**: lo único que retiene es texto extraído,
+  que §17 prohíbe persistir. Un reinicio del backend a mitad de lote pierde
+  el job, no los candidatos: los ya resumidos quedan `summarized` y los que
+  faltaban quedan `pending` (nunca `extracting` colgado), listos para una
+  subida individual o para borrarlos. Mientras esperan turno los candidatos
+  están `pending`; solo el que está en el modelo pasa a `extracting`.
+
+Cómo se comportan los límites con un lote:
+
+| Límite | Comportamiento con la carga masiva |
+|---|---|
+| 10 MB por CV | Un archivo por encima **tumba el lote entero** con 413 antes de crear nada: multer aborta el multipart y no hay forma de seguir con los demás. Se quita ese archivo y se vuelve a subir. La UI lo marca antes de enviar. |
+| 30 archivos por lote | Más archivos es 422 antes de crear nada. Existe para acotar la RAM del request (peor caso 30 × 10 MB). |
+| 100 candidatos por proceso | Se comprueba con el lote **completo**: si `actuales + aceptados > 100`, 422 y no se crea ninguno. Nunca medio lote. |
+| 100 extracciones por hora | Cada CV del lote cuenta una. Se reservan **todas de golpe o ninguna** (`RateLimiter.checkMany`); si no caben, 429 sin crear nada. |
+| 50.000 caracteres por CV | Igual que en la subida individual, por CV; `truncated` por archivo en la respuesta. |
+| Formato no admitido | **No tumba el lote**: ese archivo se reporta `rejected` sin crear candidato y el resto sigue. Si ninguno es válido, 415. |
+| Archivo ilegible (PDF corrupto) | El candidato **sí** se crea y queda `failed`, igual que en la subida individual; se reintenta desde su fila. |
+
+Otras reglas del lote:
+
+- **Nombre del candidato.** Lo pone quien nombró el archivo:
+  `cv_ana-perez.pdf` → «Ana Perez». La regla vive en
+  `apps/api/src/cv/candidate-name.ts`: sin extensión, separadores a espacio,
+  fuera las palabras de relleno (cv, currículum, resume, hoja de vida…),
+  números sueltos y «(1)» de duplicados; a Título si venía todo en
+  minúsculas o mayúsculas, respetando la mezcla si la traía; «Candidato N»
+  si no queda nada. El usuario puede sobreescribirlo por archivo en la misma
+  petición (campo `names`) y siempre renombrar después con
+  `PATCH /candidates/:id`. Dentro de un lote los repetidos se numeran («Ana
+  Perez (2)»). El nombre **nunca** se saca del contenido del CV: el texto no
+  sale del request y no es algo que un modelo de 2B deba adivinar.
+- **Modelo caído a mitad de lote.** Se espera y se reintenta el mismo CV
+  (10 esperas de 30 s); si no vuelve, el lote se detiene: ese candidato queda
+  `failed`, los que faltaban `cancelled` con su candidato `pending`, y la UI
+  explica que hay que arrancar el modelo y subir esos CVs desde su fila.
+  Mejor eso que veinte fallos seguidos.
+- **Cancelar** (`DELETE`) deja en `pending` lo que no había empezado; el CV
+  que esté en el modelo termina (la llamada no se aborta) y entonces el job
+  cierra como `cancelled`.
+- Si al llegarle el turno alguien ya le había subido un CV a mano, el lote
+  **no lo pisa** (`skipped`).
+- Permisos: exige `canCreateCandidate` y `canUploadCV`, porque hace las dos
+  cosas. Auditoría solo con conteos: `candidate.created` por candidato (con
+  el id del lote), `candidate.cv_extracted` por resumen y
+  `candidate.cv_bulk_started` / `candidate.cv_bulk_finished` por lote.
+- **Subir un lote sin nombres es más cómodo pero más ciego**: si los
+  archivos se llaman `CV.pdf`, `CV (1).pdf`… saldrán «Candidato 1»,
+  «Candidato 2» y habrá que renombrar. La UI lo avisa y ofrece el nombre por
+  archivo antes de enviar.
 
 ## 17. Manejo De Datos Sensibles
 
@@ -869,6 +952,8 @@ ni en el estado del router (§17) y la vista NUNCA vuelve a llamar a la API
 - Lista de candidatos.
 - Añadir candidato.
 - Cargar CV.
+- Carga masiva: elegir varios CVs, revisar el nombre propuesto por archivo,
+  importar y ver el progreso del lote (con cancelación).
 - Ver estado de análisis.
 
 ### Detalle De Candidato

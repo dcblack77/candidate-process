@@ -1,39 +1,22 @@
 import { inject, injectable } from "@expressots/core";
-import {
-    estimateTokens,
-    LlmClient,
-    OUTPUT_MARGIN_TOKENS,
-    truncateToBudget,
-} from "../ai/llm-client";
-import { PromptLoader } from "../ai/prompts";
-import { NEUTRAL_ROLE_CONTEXT } from "../ai/role-context";
-import {
-    SUMMARIZE_CV_JSON_SCHEMA,
-    SummarizeCvResult,
-    summarizeCvZodSchema,
-} from "../ai/schemas/summarize-cv";
 import { CandidateRepository } from "../candidates/candidate.repository";
-import { AppEnv, ENV } from "../env";
 import {
     ProcessRepository,
     requireWritableProcess,
 } from "../process/process.repository";
 import { RateLimiter } from "../security/rate-limit";
-import { AuditRepository } from "../shared/audit";
 import { AppError } from "../shared/errors";
 import { assertValidId } from "../shared/ids";
-import { MAX_EXTRACTED_CHARS, RATE_LIMITS_PER_HOUR } from "../shared/limits";
+import { RATE_LIMITS_PER_HOUR } from "../shared/limits";
 import {
     CvExtractResponseDTO,
     UploadedCvFile,
     validateUploadedCv,
 } from "./cv.dto";
+import { CvSummarizer } from "./cv-summarizer";
 import { extractText } from "./extractors";
 
-/** Nombre del prompt de resumen (prompts/summarize-cv.md). */
-const SUMMARIZE_PROMPT = "summarize-cv";
-
-/** Clave del rate limiter para la extracción de CV (§16: 20/hora). */
+/** Clave del rate limiter para la extracción de CV (§16: 100/hora). */
 export const CV_EXTRACT_RATE_KEY = "cv-extract";
 
 /**
@@ -46,19 +29,19 @@ export const CV_EXTRACT_RATE_KEY = "cv-extract";
  *   persisten en DB (solo el resumen estructurado del modelo).
  * - `analysis_status` transita pending → extracting → summarized; si algo
  *   falla tras empezar queda 'failed', estado reintentable con un nuevo POST.
+ *
+ * El tramo "texto → resumen persistido" vive en `CvSummarizer`, compartido
+ * con la carga masiva (`BulkImportCvsUseCase`).
  */
 @injectable()
 export class ExtractCvUseCase {
     constructor(
-        @inject(ENV) private readonly env: AppEnv,
         @inject(ProcessRepository)
         private readonly processes: ProcessRepository,
         @inject(CandidateRepository)
         private readonly candidates: CandidateRepository,
         @inject(RateLimiter) private readonly rateLimiter: RateLimiter,
-        @inject(LlmClient) private readonly llm: LlmClient,
-        @inject(PromptLoader) private readonly prompts: PromptLoader,
-        @inject(AuditRepository) private readonly audit: AuditRepository,
+        @inject(CvSummarizer) private readonly summarizer: CvSummarizer,
     ) {}
 
     async execute(
@@ -76,83 +59,32 @@ export class ExtractCvUseCase {
             throw new AppError("NOT_FOUND");
         }
 
-        // Rate limit §16: 20 extracciones/hora. Solo cuenta si la petición
+        // Rate limit §16: 100 extracciones/hora. Solo cuenta si la petición
         // superó las validaciones (archivo válido y candidato existente).
         this.rateLimiter.check(
             CV_EXTRACT_RATE_KEY,
             RATE_LIMITS_PER_HOUR.EXTRACT,
         );
 
-        const startedAt = Date.now();
         this.candidates.setAnalysisStatus(id, "extracting");
 
-        let extractedChars = 0;
-        let truncated = false;
-        let summary: SummarizeCvResult;
+        let text: string;
         try {
-            const text = await extractText(cvFile.buffer, kind);
-            extractedChars = text.length;
-
-            const roleTitle = selected.role_title;
-            const roleContext = selected.role_context ?? NEUTRAL_ROLE_CONTEXT;
-
-            // Doble truncado (plan §Riesgos): 50k chars (§16) y además el
-            // presupuesto de tokens del contexto del modelo, descontando el
-            // margen de salida y el prompt renderizado sin el cv_text.
-            const promptOverhead = estimateTokens(
-                this.prompts.render(SUMMARIZE_PROMPT, {
-                    cv_text: "",
-                    role_title: roleTitle,
-                    role_context: roleContext,
-                }),
-            );
-            const tokenBudget =
-                this.env.LLM_CONTEXT_TOKENS -
-                OUTPUT_MARGIN_TOKENS -
-                promptOverhead;
-            const cvText = truncateToBudget(
-                text.slice(0, MAX_EXTRACTED_CHARS),
-                tokenBudget,
-            );
-            truncated = cvText.length < text.length;
-
-            summary = await this.llm.complete<SummarizeCvResult>({
-                promptName: SUMMARIZE_PROMPT,
-                variables: {
-                    cv_text: cvText,
-                    role_title: roleTitle,
-                    role_context: roleContext,
-                },
-                schema: SUMMARIZE_CV_JSON_SCHEMA,
-                zodSchema: summarizeCvZodSchema,
-            });
-
-            // Se persiste SOLO el resumen estructurado, nunca el texto crudo.
-            this.candidates.saveCvSummary(
-                id,
-                JSON.stringify(summary),
-                JSON.stringify(summary.evidence),
-            );
+            text = await extractText(cvFile.buffer, kind);
         } catch (error) {
-            // Fallo tras empezar (parseo o modelo): estado 'failed'
-            // persistido y reintentable; el error viaja intacto al handler.
+            // Archivo ilegible: 'failed' persistido y reintentable.
             this.candidates.setAnalysisStatus(id, "failed");
             throw error;
         }
 
-        // Auditoría sin contenido (§17): solo métricas y duración.
-        this.audit.logEvent("candidate.cv_extracted", "candidate", id, {
-            chars: extractedChars,
-            truncated,
-            durationMs: Date.now() - startedAt,
-        });
+        const outcome = await this.summarizer.summarize(id, text, selected);
 
         return {
             candidateId: id,
             analysisStatus: "summarized",
-            extractedChars,
-            truncated,
-            cvSummary: summary,
+            extractedChars: outcome.extractedChars,
+            truncated: outcome.truncated,
+            cvSummary: outcome.summary,
             fileDeleted: true,
         };
     }

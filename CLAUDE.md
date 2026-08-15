@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pnpm install                 # instalar (workspace pnpm: apps/api + apps/web)
 pnpm dev                     # API (127.0.0.1:$API_PORT, 3010 por defecto) + UI (:5173)
 pnpm dev:api / pnpm dev:web  # cada app por separado
-pnpm test                    # suite completa; api: 411 tests, web: 64
+pnpm test                    # suite completa; api: 451 tests, web: 89
 pnpm --filter api test -- <patrón>   # un spec concreto (p. ej. -- weights, -- cv)
 pnpm build                   # tsc estricto + bundle de web
 pnpm --filter api lint       # eslint del backend
@@ -32,6 +32,7 @@ Los tests del backend usan SQLite `:memory:` y un mock HTTP de llama.cpp — nun
 - `scoring/weights.ts` es la ÚNICA fuente de pesos (rúbrica y combinado 30/70) y desempates; el modelo nunca calcula el score final (el backend lo recalcula siempre) y el frontend consume los pesos vía `GET /ranking` (`weights` y `scoreWeights`).
 - **Export** (§19) `apps/api/src/export/`: `POST /export` acepta `format: "markdown"` (default, contrato original) o `"structured"`. El markdown lo escribe `markdown-builder.ts`; el structured devuelve LOS MISMOS datos en JSON y `structured-builder.ts` solo aplica `include` (nada de duplicar la selección de datos). La UI maqueta ese JSON en `/export/print` y el **navegador** genera el PDF: cero librerías nuevas y la API sigue sin escribir en disco. La vista de impresión NUNCA convierte markdown a HTML —prohibidos `dangerouslySetInnerHTML`, `innerHTML` y cualquier librería markdown→HTML— porque el contenido viene del modelo y del CV. Los datos llegan a la vista **en memoria** (`apps/web/src/context/PrintExportContext.tsx`), nunca por sessionStorage ni por el state del router (§17), y la vista no vuelve a llamar a la API (consumiría otra de las 10 exportaciones).
 - Límite de 5 regeneraciones de análisis = COUNT de `app_event` con `action='candidate.analyzed'`; 20 preguntas = COUNT en tabla; 10 exports/sesión = contador en memoria.
+- **Carga masiva de CVs** (2026-08-15, §16 "Carga masiva de CVs"): `POST /candidates/cv/bulk` (multipart `files` + opcional `names` JSON) crea un candidato por archivo. El **request** valida el lote entero, crea los candidatos y EXTRAE el texto (los buffers mueren con él, `scrubUploadedFiles`); un **job en memoria** (`cv/bulk-import-job.ts`, uno a la vez, 202 + polling, cancelable) pasa el texto por el modelo uno a uno con `cv/cv-summarizer.ts`, el tramo "texto → resumen persistido" que comparte con `ExtractCvUseCase`. Mientras esperan turno los candidatos están `pending` (nunca `extracting` colgado si el backend muere). Nombre del candidato = deducido del nombre del archivo en `cv/candidate-name.ts` (regla documentada ahí y en el blueprint), sobreescribible por archivo y renombrable después. Límites: >10 MB tumba el lote entero (413, multer aborta); formato no admitido se rechaza solo (`rejected`); 100 candidatos y cupo por hora se comprueban con el lote completo antes de crear nada (`RateLimiter.checkMany`). El cupo de extracción subió de 20 a **100/h** (cada CV cuenta uno). En la web el panel es `pages/BulkCvUploadPanel.tsx` y sus tipos/llamadas viven en `api/bulk-cv.ts` (a integrar en `types.ts`/`client.ts`).
 - Errores: `AppError` con códigos tipados (`shared/errors.ts`) → `{error:{code,message}}`; los errores no controlados se loguean sin mensaje (solo tipo + frames).
 
 ## Entrevista asistida por audio (§24, 2026-08-07)
@@ -147,7 +148,7 @@ Cada pregunta generada lleva el bloque de §14: pregunta, dimensión, criterio, 
 
 ## Límites operativos
 
-CV ≤ 10 MB; texto extraído ≤ 50.000 caracteres; ≤ 100 candidatos por proceso; ≤ 5 regeneraciones de análisis por candidato; ≤ 20 preguntas por candidato; ≤ 10 exportaciones por sesión; audio de entrevista ≤ 25 MB por pista y ≤ 5 grabaciones conservadas por candidato (§24: se rechaza al llegar al tope, no se rota — qué se borra lo decide el evaluador). Rate limiting local por hora: extracción 20, análisis 30, preguntas 60, ranking 30, entrevista 6. Formatos aceptados: PDF, DOCX, TXT.
+CV ≤ 10 MB; ≤ 30 CVs por lote de carga masiva; texto extraído ≤ 50.000 caracteres; ≤ 100 candidatos por proceso; ≤ 5 regeneraciones de análisis por candidato; ≤ 20 preguntas por candidato; ≤ 10 exportaciones por sesión; audio de entrevista ≤ 25 MB por pista y ≤ 5 grabaciones conservadas por candidato (§24: se rechaza al llegar al tope, no se rota — qué se borra lo decide el evaluador). Rate limiting local por hora: extracción 100 (cada CV cuenta uno, suelto o en lote), análisis 30, preguntas 60, ranking 30, entrevista 6. Formatos aceptados: PDF, DOCX, TXT.
 
 ## Fuera de alcance del MVP
 

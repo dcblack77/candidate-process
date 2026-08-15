@@ -74,7 +74,7 @@ export const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 /** Límites por hora para cada acción costosa (BLUEPRINT §16). */
 export const RATE_LIMITS_PER_HOUR = {
     /** Extracción de texto de CV. */
-    EXTRACT: 20,
+    EXTRACT: 100, // era 20; cada CV cuenta uno, suelto o en lote (§16, 2026-08-15)
     /** Análisis con el modelo local. */
     ANALYZE: 30,
     /** Generación de preguntas. */
@@ -89,3 +89,13 @@ export const RATE_LIMITS_PER_HOUR = {
 } as const;
 
 export type RateLimitedAction = keyof typeof RATE_LIMITS_PER_HOUR;
+
+// ── Carga masiva de CVs (§16, 2026-08-15) ───────────────────────────────────
+
+/**
+ * Archivos por lote en la carga masiva de CVs. Acota la RAM del request: los
+ * CVs se reciben en memoria (nunca en disco) y en el peor caso son 30 × 10 MB.
+ * Un lote más grande se rechaza entero antes de crear nada; se sube en dos
+ * veces.
+ */
+export const MAX_BULK_CV_FILES = 30;
