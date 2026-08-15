@@ -1,5 +1,8 @@
 import { CreateModule, interfaces } from "@expressots/core";
+import { BulkImportJobRegistry } from "./bulk-import-job";
+import { BulkImportCvsUseCase } from "./bulk-import.usecase";
 import { CvController } from "./cv.controller";
+import { CvSummarizer } from "./cv-summarizer";
 import { ExtractCvUseCase } from "./extract-cv.usecase";
 
 /**
@@ -11,6 +14,9 @@ import { ExtractCvUseCase } from "./extract-cv.usecase";
 export const CvModule = CreateModule(
     [CvController],
     (bind: interfaces.Bind) => {
+        bind(CvSummarizer).toSelf().inSingletonScope();
         bind(ExtractCvUseCase).toSelf().inSingletonScope();
+        bind(BulkImportJobRegistry).toSelf().inSingletonScope();
+        bind(BulkImportCvsUseCase).toSelf().inSingletonScope();
     },
 );

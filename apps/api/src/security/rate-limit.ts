@@ -42,4 +42,33 @@ export class RateLimiter {
     reset(): void {
         this.hitsByKey.clear();
     }
+
+    /**
+     * Reserva `count` usos de `key` DE UNA VEZ o lanza RATE_LIMITED sin
+     * registrar ninguno. Lo usa la carga masiva de CVs: un lote de N archivos
+     * son N extracciones (§16) y, si no caben todas en la ventana, se rechaza
+     * el lote entero antes de crear nada en vez de dejar a medias.
+     */
+    checkMany(
+        key: string,
+        limit: number,
+        count: number,
+        windowMs: number = RATE_LIMIT_WINDOW_MS,
+    ): void {
+        const now = Date.now();
+        const cutoff = now - windowMs;
+        const recent = (this.hitsByKey.get(key) ?? []).filter(
+            (t) => t > cutoff,
+        );
+
+        if (recent.length + count > limit) {
+            this.hitsByKey.set(key, recent);
+            throw new AppError("RATE_LIMITED");
+        }
+
+        for (let i = 0; i < count; i++) {
+            recent.push(now);
+        }
+        this.hitsByKey.set(key, recent);
+    }
 }

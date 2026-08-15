@@ -404,13 +404,13 @@ describe("POST /candidates/:id/cv/extract", () => {
         });
     });
 
-    describe("rate limit (§16: 20/hora)", () => {
-        it("la llamada 21 en la misma hora responde 429 RATE_LIMITED", async () => {
+    describe("rate limit (§16: 100/hora)", () => {
+        it("la llamada que excede el cupo en la misma hora responde 429 RATE_LIMITED", async () => {
             await createProcess();
             const id = await createCandidate();
 
             // Consumimos el cupo directamente en el limiter compartido con la
-            // app (misma clave): equivale a 20 extracciones en la ventana.
+            // app (misma clave): equivale a agotar el cupo de la ventana.
             for (let i = 0; i < RATE_LIMITS_PER_HOUR.EXTRACT; i++) {
                 rateLimiter.check(
                     CV_EXTRACT_RATE_KEY,

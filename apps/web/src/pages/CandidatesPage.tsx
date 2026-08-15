@@ -17,13 +17,15 @@ import {
     Spinner,
     StatusBadge,
 } from "../components/ui";
+import { BulkCvUploadPanel } from "./BulkCvUploadPanel";
 
 /** Intervalo del polling mientras hay candidatos en extracting/analyzing. */
 const POLL_INTERVAL_MS = 2500;
 
 /**
  * Pantalla Candidatos (§21): tabla con estado de análisis, alta por nombre,
- * subida de CV, análisis, reintento y borrado con confirmación.
+ * carga masiva de CVs, subida de CV, análisis, reintento y borrado con
+ * confirmación.
  */
 export function CandidatesPage() {
     const [candidates, setCandidates] = useState<CandidateListItemDTO[] | null>(
@@ -62,6 +64,7 @@ export function CandidatesPage() {
         <>
             <h1 className="page-title">Candidatos</h1>
             <AddCandidateForm onAdded={load} />
+            <BulkCvUploadPanel onChanged={load} />
             <ErrorAlert message={listError} />
             {candidates === null ? (
                 <p>
