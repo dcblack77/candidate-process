@@ -21,6 +21,12 @@ export const MAX_QUESTIONS_PER_CANDIDATE = 20;
 /** Máximo de exportaciones por sesión. */
 export const MAX_EXPORTS_PER_SESSION = 10;
 
+/**
+ * Máximo de detecciones de riesgos y lagunas por candidato (§13). Mismo
+ * criterio que las regeneraciones de análisis: se cuenta en app_event.
+ */
+export const MAX_RISK_DETECTIONS_PER_CANDIDATE = 5;
+
 // ── Entrevista asistida por audio (§24) ─────────────────────────────────────
 
 /** Tamaño máximo de cada pista de audio subida, en megabytes. */
@@ -86,6 +92,8 @@ export const RATE_LIMITS_PER_HOUR = {
      * ~15 minutos de CPU entre transcripción y modelo.
      */
     INTERVIEW: 6,
+    /** Detección de riesgos y lagunas (una llamada al modelo por candidato). */
+    RISKS: 30,
 } as const;
 
 export type RateLimitedAction = keyof typeof RATE_LIMITS_PER_HOUR;

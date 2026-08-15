@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
 
@@ -148,19 +148,36 @@ export async function buildCvDocx(): Promise<Buffer> {
     return zip.generateAsync({ type: "nodebuffer" });
 }
 
-/** Escribe (o reescribe) los tres fixtures en test/fixtures/. */
+/**
+ * Escribe los tres fixtures en test/fixtures/ si FALTAN. Con `force` los
+ * reescribe siempre.
+ *
+ * Por qué no reescribir por defecto: el DOCX es un zip y JSZip estampa la
+ * fecha de cada entrada, así que regenerarlo produce bytes distintos en cada
+ * ejecución. Como los tests lo llamaban en cada `beforeAll`, la suite dejaba
+ * el fixture versionado como modificado en el working tree (mismo tamaño,
+ * distinto hash) y acababa colándose en commits. Los tests solo necesitan
+ * que exista; regenerar a propósito es cosa del CLI de abajo.
+ */
 export async function ensureFixtures(
     dir: string = FIXTURES_DIR,
+    { force = false }: { force?: boolean } = {},
 ): Promise<void> {
     mkdirSync(dir, { recursive: true });
-    writeFileSync(path.join(dir, "cv-sample.txt"), buildCvTxt());
-    writeFileSync(path.join(dir, "cv-sample.pdf"), buildCvPdf());
-    writeFileSync(path.join(dir, "cv-sample.docx"), await buildCvDocx());
+    const write = (name: string, content: Buffer | string): void => {
+        const target = path.join(dir, name);
+        if (force || !existsSync(target)) {
+            writeFileSync(target, content);
+        }
+    };
+    write("cv-sample.txt", buildCvTxt());
+    write("cv-sample.pdf", buildCvPdf());
+    write("cv-sample.docx", await buildCvDocx());
 }
 
 /* Ejecutable directamente: pnpm --filter api exec tsx scripts/generate-fixtures.ts */
 if (require.main === module) {
-    void ensureFixtures().then(() => {
+    void ensureFixtures(FIXTURES_DIR, { force: true }).then(() => {
         console.info(`[fixtures] regenerados en ${FIXTURES_DIR}`);
     });
 }

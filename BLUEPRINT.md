@@ -262,6 +262,8 @@ DELETE /candidates/:id
 
 POST   /candidates/:id/cv/extract
 POST   /candidates/:id/analyze
+POST   /candidates/:id/risks     # riesgos y lagunas para la entrevista (§13)
+GET    /candidates/:id/risks
 POST   /candidates/:id/questions
 PATCH  /candidates/:id/questions/:questionId/answer
 PATCH  /candidates/:id/score
@@ -408,6 +410,19 @@ answer_notes    # notas privadas de lo que respondió (dato sensible: fuera del 
 answered_at     # ISO 8601 UTC del último registro de respuesta (null si no hay respuesta)
 ```
 
+### CandidateRiskAnalysis
+
+```text
+id
+candidate_id    # UNIQUE: una fila por candidato, regenerar sobrescribe
+confidence
+risks           # JSON [{category, criterion, severity, concern, evidence{text,type}, interviewCheck}]
+gaps            # JSON [{criterion, missing, whyItMatters, interviewCheck}]
+stats           # JSON con los contadores del verificador (explicit/inferred/rebajados)
+created_at
+updated_at
+```
+
 ### AppEvent
 
 ```text
@@ -483,6 +498,29 @@ veredictos son `not_assessed`.
 El contexto de entrevista se trunca para no romper el presupuesto de tokens
 (§18): notas del evaluador a 400 caracteres por pregunta, respuesta ideal y
 enunciado a 300.
+
+### Riesgos y lagunas (2026-08-15)
+
+`POST /candidates/:id/risks` (dominio `risks/`, prompt
+`detect-risks-and-gaps`) es una pasada específica sobre el `cv_summary`,
+independiente de la puntuación: señala qué **no se puede saber** a partir del
+CV (lagunas) y dónde están los **riesgos** de contratar, cada uno con qué
+preguntar en la entrevista para despejarlo. Es material para la entrevista,
+no una conclusión: no toca `candidate_score` ni el ranking.
+
+- Solo exige `cv_summary` (no análisis previo); recibe título y contexto del
+  rol. Máximo 5 detecciones por candidato (eventos `candidate.risks_detected`)
+  y 30/hora.
+- Riesgo ≠ laguna: el riesgo se apoya en algo que el resumen **sí dice**
+  (`evidence {text, type}`); la laguna es lo que el resumen **no** permite
+  saber y no lleva evidencia ni severidad.
+- **Verificación en código** (`risks/risk-verifier.ts`): toda evidencia
+  `explicit` se comprueba contra el resumen y el contexto del rol; si no se
+  sostiene se rebaja a `inferred` antes de persistir. Un riesgo inventado es
+  peor que no reportarlo. `stats.downgradedToInferred` deja visible cuántas
+  veces pasó.
+- Una fila por candidato (`candidate_risk_analysis`, migración 007);
+  regenerar sobrescribe. `GET` responde `analysis: null` si aún no hay.
 
 ## 14. Generación De Preguntas
 
