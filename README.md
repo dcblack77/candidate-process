@@ -210,9 +210,9 @@ Todo va en un `.env` en la raíz (copia de `.env.example`). Los valores por defe
 pnpm dev                # API + UI
 pnpm dev:api            # solo API
 pnpm dev:web            # solo UI
-pnpm test               # suite completa (503 tests)
-pnpm --filter api test  # backend (422)
-pnpm --filter web test  # frontend (81)
+pnpm test               # suite completa (631 tests)
+pnpm --filter api test  # backend (538)
+pnpm --filter web test  # frontend (93)
 pnpm build              # tsc estricto + bundle
 pnpm --filter api lint  # eslint del backend
 ```
@@ -273,7 +273,7 @@ Si eres un modelo trabajando sobre este repositorio, empieza por aquí.
 git clone https://github.com/dcblack77/candidate-process.git
 cd candidate-process
 pnpm install
-pnpm test          # 503 tests; deben pasar todos antes de tocar nada
+pnpm test          # 631 tests; deben pasar todos antes de tocar nada
 ```
 
 **Los dos documentos que mandan**, por este orden:
