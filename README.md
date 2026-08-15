@@ -200,7 +200,7 @@ Todo va en un `.env` en la raíz (copia de `.env.example`). Los valores por defe
 | `STT_MODEL` | `Systran/faster-whisper-base` | `…-small` transcribe mejor el español técnico. |
 | `STT_TIMEOUT_MS` | `600000` | 10 min: una pista de 50 min tarda ~4,5 min en CPU. |
 
-**Límites operativos**: CV ≤ 10 MB · texto extraído ≤ 50 000 caracteres · 100 candidatos por proceso · 5 reanálisis por candidato · 20 preguntas por candidato · 10 exports por sesión · audio ≤ 25 MB por pista · 5 grabaciones conservadas por candidato.
+**Límites operativos**: CV ≤ 10 MB · texto extraído ≤ 50 000 caracteres · 100 candidatos por proceso · 5 reanálisis por candidato · 20 preguntas por candidato · 10 exports por hora · audio ≤ 25 MB por pista · 5 grabaciones conservadas por candidato.
 
 ---
 

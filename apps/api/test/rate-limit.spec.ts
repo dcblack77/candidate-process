@@ -61,3 +61,37 @@ describe("RateLimiter (ventana deslizante en memoria)", () => {
         expect(() => limiter.check("extract", 1)).not.toThrow();
     });
 });
+
+describe("RateLimiter.refund", () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it("devuelve el último uso y deja sitio para uno más", () => {
+        const limiter = new RateLimiter();
+        limiter.check("interview", 1);
+        expect(() => limiter.check("interview", 1)).toThrow(AppError);
+        limiter.refund("interview");
+        expect(() => limiter.check("interview", 1)).not.toThrow();
+    });
+
+    it("sin usos registrados no hace nada ni rompe", () => {
+        const limiter = new RateLimiter();
+        expect(() => limiter.refund("nada")).not.toThrow();
+        limiter.check("nada", 1);
+        expect(() => limiter.check("nada", 1)).toThrow(AppError);
+    });
+
+    it("solo devuelve UN uso por llamada", () => {
+        const limiter = new RateLimiter();
+        limiter.check("interview", 2);
+        limiter.check("interview", 2);
+        limiter.refund("interview");
+        expect(() => limiter.check("interview", 2)).not.toThrow();
+        expect(() => limiter.check("interview", 2)).toThrow(AppError);
+    });
+});

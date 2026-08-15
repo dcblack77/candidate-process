@@ -1,5 +1,6 @@
 import { CreateModule, interfaces } from "@expressots/core";
 import { AnswerQuestionUseCase } from "./answer-question.usecase";
+import { DeleteQuestionUseCase } from "./delete-question.usecase";
 import { GenerateQuestionsUseCase } from "./generate-questions.usecase";
 import { QuestionRepository } from "./question.repository";
 import { QuestionsController } from "./questions.controller";
@@ -16,5 +17,6 @@ export const QuestionsModule = CreateModule(
         bind(QuestionRepository).toSelf().inSingletonScope();
         bind(GenerateQuestionsUseCase).toSelf().inSingletonScope();
         bind(AnswerQuestionUseCase).toSelf().inSingletonScope();
+        bind(DeleteQuestionUseCase).toSelf().inSingletonScope();
     },
 );

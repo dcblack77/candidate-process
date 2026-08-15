@@ -149,16 +149,46 @@ export interface RecordingDTO {
     durationSec: number | null;
     segments: number | null;
     lastRunId: string | null;
-    lastStatus: "running" | "done" | "failed" | "cancelled" | null;
+    /**
+     * Estado DERIVADO del último análisis. La fila solo sabe decir `running`;
+     * es el registro de jobs en memoria quien distingue si ese job sigue en
+     * cola (`queued`), corriendo (`running`) o murió con el proceso
+     * (`interrupted`, la señal de "reintenta"). Hasta el 2026-08-15 la
+     * pantalla enseñaba "interrumpido" también mientras corría de verdad.
+     */
+    lastStatus:
+        | "queued"
+        | "running"
+        | "interrupted"
+        | "done"
+        | "failed"
+        | "cancelled"
+        | null;
     /** Código tipado del último fallo. Nunca un mensaje con contenido. */
     lastErrorCode: string | null;
+    /**
+     * Job vivo (en cola o corriendo) sobre esta grabación, si lo hay. Permite
+     * que la pantalla vuelva a engancharse al progreso tras recargar.
+     */
+    activeJobId: string | null;
+}
+
+/** Lo que el DTO necesita saber del registro de jobs, sin acoplarse a él. */
+export interface LiveJobLookup {
+    /** Estado del job si sigue vivo; `undefined` si no está en memoria. */
+    liveStatus(jobId: string): "queued" | "running" | undefined;
 }
 
 export function toRecordingDTO(
     row: RecordingRow,
     tracks: StoredTrack[],
     bytes: number,
+    jobs?: LiveJobLookup,
 ): RecordingDTO {
+    const live =
+        row.last_run_id && jobs ? jobs.liveStatus(row.last_run_id) : undefined;
+    const lastStatus: RecordingDTO["lastStatus"] =
+        row.last_status === "running" ? (live ?? "interrupted") : row.last_status;
     return {
         id: row.id,
         createdAt: row.created_at,
@@ -173,8 +203,9 @@ export function toRecordingDTO(
         durationSec: row.duration_sec,
         segments: row.segments,
         lastRunId: row.last_run_id,
-        lastStatus: row.last_status,
+        lastStatus,
         lastErrorCode: row.last_error_code,
+        activeJobId: live ? row.last_run_id : null,
     };
 }
 

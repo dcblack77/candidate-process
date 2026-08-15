@@ -41,12 +41,13 @@ function formatDate(iso: string): string {
 }
 
 /**
- * Qué pasó con el último análisis. `running` sin job vivo es el caso que
- * motivó todo esto: el proceso murió y dejó la grabación a medias.
+ * Qué pasó con el último análisis. El backend ya distingue (2026-08-15) entre
+ * un job que espera, uno que corre y uno que murió con el proceso:
+ * `interrupted` es el caso que motivó todo esto, y es el que pide reintentar.
  */
 function statusLabel(recording: RecordingDTO): {
     text: string;
-    tone: "ok" | "warn";
+    tone: "ok" | "warn" | "info";
 } {
     switch (recording.lastStatus) {
         case "done":
@@ -55,12 +56,22 @@ function statusLabel(recording: RecordingDTO): {
             return { text: "El análisis falló", tone: "warn" };
         case "cancelled":
             return { text: "Análisis cancelado", tone: "warn" };
+        case "queued":
+            return { text: "En cola", tone: "info" };
         case "running":
+            return { text: "Analizando…", tone: "info" };
+        case "interrupted":
             return { text: "Análisis interrumpido", tone: "warn" };
         default:
             return { text: "Sin analizar", tone: "warn" };
     }
 }
+
+const TONE_CLASS: Record<"ok" | "warn" | "info", string> = {
+    ok: "badge badge-ok",
+    warn: "badge badge-warn",
+    info: "badge",
+};
 
 export function SavedRecordings({
     recordings,
@@ -96,13 +107,7 @@ export function SavedRecordings({
                         <li key={recording.id} className="recording-item">
                             <div className="recording-meta">
                                 <strong>{formatDate(recording.createdAt)}</strong>
-                                <span
-                                    className={
-                                        status.tone === "ok"
-                                            ? "badge badge-ok"
-                                            : "badge badge-warn"
-                                    }
-                                >
+                                <span className={TONE_CLASS[status.tone]}>
                                     {status.text}
                                 </span>
                                 <span className="muted small">
@@ -114,6 +119,13 @@ export function SavedRecordings({
                                 </span>
                             </div>
 
+                            {recording.lastStatus === "interrupted" && (
+                                <p className="muted small">
+                                    El análisis murió a medias (probablemente
+                                    se reinició el servidor). La grabación
+                                    está a salvo: reanalízala.
+                                </p>
+                            )}
                             {!recording.hasTranscript && !gone && (
                                 <p className="muted small">
                                     Sin transcripción guardada: reanalizar

@@ -338,6 +338,101 @@ describe("POST /candidates/:id/questions", () => {
     });
 
     /**
+     * DELETE /candidates/:id/questions/:questionId (2026-08-15): la única
+     * puerta del tope de 20. Solo se borran preguntas sin respuesta.
+     */
+    describe("DELETE /candidates/:id/questions/:questionId", () => {
+        it("borra una pregunta sin respuesta y hace sitio bajo el tope", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedAnalyzed(id);
+            await request
+                .post(`/candidates/${id}/questions`)
+                .send({ count: 20 })
+                .expect(201);
+            const victim = questionRows(id)[0].id;
+
+            const res = await request.delete(
+                `/candidates/${id}/questions/${victim}`,
+            );
+            expect(res.status).toBe(200);
+            expect(res.body).toEqual({
+                id: victim,
+                deleted: true,
+                questionsTotal: 19,
+                questionsLimit: MAX_QUESTIONS_PER_CANDIDATE,
+            });
+            expect(questionRows(id)).toHaveLength(19);
+
+            // Y ahora sí cabe una más.
+            const more = await request
+                .post(`/candidates/${id}/questions`)
+                .send({ count: 1 });
+            expect(more.status).toBe(201);
+            expect(more.body.questionsTotal).toBe(MAX_QUESTIONS_PER_CANDIDATE);
+
+            // Auditoría sin contenido: ids y conteo, nunca el enunciado.
+            const events = eventsByAction(db, "candidate.question_deleted");
+            expect(events).toHaveLength(1);
+            expect(events[0].metadata).toContain(victim);
+            expect(events[0].metadata).not.toContain("¿");
+        });
+
+        it("una pregunta con respuesta registrada NO se borra", async () => {
+            await createProcess();
+            const id = await createCandidate();
+            seedAnalyzed(id);
+            await request
+                .post(`/candidates/${id}/questions`)
+                .send({ count: 2 })
+                .expect(201);
+            const [scored, noted] = questionRows(id);
+            await request
+                .patch(`/candidates/${id}/questions/${scored.id}/answer`)
+                .send({ score: 7 })
+                .expect(200);
+            await request
+                .patch(`/candidates/${id}/questions/${noted.id}/answer`)
+                .send({ notes: "Contestó regular." })
+                .expect(200);
+
+            for (const question of [scored, noted]) {
+                const res = await request.delete(
+                    `/candidates/${id}/questions/${question.id}`,
+                );
+                expect(res.status).toBe(400);
+                expect(res.body.error.code).toBe("INVALID_INPUT");
+            }
+            expect(questionRows(id)).toHaveLength(2);
+        });
+
+        it("404 si la pregunta es de otro candidato; 409 sobre un proceso archivado", async () => {
+            await createProcess();
+            const ana = await createCandidate("Ana");
+            const luis = await createCandidate("Luis");
+            seedAnalyzed(ana);
+            await request
+                .post(`/candidates/${ana}/questions`)
+                .send({ count: 1 })
+                .expect(201);
+            const question = questionRows(ana)[0].id;
+
+            const foreign = await request.delete(
+                `/candidates/${luis}/questions/${question}`,
+            );
+            expect(foreign.status).toBe(404);
+            expect(questionRows(ana)).toHaveLength(1);
+
+            await request.post("/process/close").expect(200);
+            const closed = await request.delete(
+                `/candidates/${ana}/questions/${question}`,
+            );
+            expect(closed.status).toBe(409);
+            expect(closed.body.error.code).toBe("PROCESS_CLOSED");
+        });
+    });
+
+    /**
      * Generar preguntas NO exige análisis previo (decisión del 2026-08-07):
      * exigirlo gastaba una de las 5 regeneraciones de análisis por candidato
      * (§16) solo para poder preguntar.

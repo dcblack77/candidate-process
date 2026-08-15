@@ -264,6 +264,7 @@ POST   /candidates/:id/cv/extract
 POST   /candidates/:id/analyze
 POST   /candidates/:id/questions
 PATCH  /candidates/:id/questions/:questionId/answer
+DELETE /candidates/:id/questions/:questionId        (solo sin respuesta)
 PATCH  /candidates/:id/score
 POST   /candidates/:id/notes
 
@@ -625,11 +626,12 @@ Límites recomendados:
 | Texto máximo extraído por CV | 50.000 caracteres |
 | Candidatos por proceso | 100 |
 | Regeneraciones de análisis por candidato | 5 |
-| Preguntas por candidato | 20 |
-| Exportaciones por sesión | 10 |
+| Preguntas por candidato | 20 (se puede borrar una sin respuesta para hacer sitio) |
+| Exportaciones por hora | 10 (ventana deslizante) |
 | Tamaño máximo por pista de audio | 25 MB |
 | Caracteres de transcripción por entrevista | 120.000 (~2 h) |
 | Citas persistidas por propuesta | 3 de 300 caracteres |
+| Análisis de entrevista esperando en cola | 5 (uno corriendo + cinco esperando) |
 
 Rate limiting local:
 
@@ -639,9 +641,32 @@ Rate limiting local:
 | Análisis con Gemma4-e2b | 30 por hora |
 | Generación de preguntas | 60 por hora |
 | Regeneración de ranking | 30 por hora |
-| Análisis de audio de entrevista | 6 por hora |
+| Análisis de audio de entrevista (transcribe) | 6 por hora |
+| Reanálisis desde transcripción guardada | 20 por hora |
 
 Aunque sea local, estos límites evitan bloqueos, abuso accidental y consumo excesivo del modelo.
+
+Revisión del **2026-08-15** (robustez de la entrevista):
+
+- **"Sesión" de exportaciones = una hora deslizante.** Sin login no existía otra
+  sesión que la vida del proceso de la API, así que a la undécima exportación
+  había que reiniciar el servidor. El límite sigue acotando el abuso
+  accidental; lo que desaparece es el reinicio como paso del flujo.
+- **Dos cupos de entrevista.** Transcribir son ~15 min de CPU y merece los 6/h;
+  reanalizar desde `transcript.json` son ~1-2 min de modelo y cobrarlo contra
+  el mismo cupo dejaba sin sitio a quien reintentaba tras un fallo. Además el
+  cupo caro se **devuelve** cuando el análisis se cancela antes de arrancar
+  (nunca corrió) o cae con `STT_UNAVAILABLE` (whisper no trabajó); no se
+  devuelve al cancelar uno que ya corría.
+- **El tope de 20 preguntas se queda** —acota el modelo y la duración de la
+  entrevista— pero deja de ser un muro sin puerta: `DELETE
+  /candidates/:id/questions/:questionId` borra una pregunta **sin respuesta**
+  para hacer sitio. Una con nota o notas es evidencia de la entrevista y no se
+  borra por ahí.
+- **Las 5 regeneraciones de análisis se quedan como están.** Los intentos
+  fallidos no cuentan (el evento se registra solo al terminar bien) y el flujo
+  normal usa dos (tras el CV y tras la entrevista); el límite existe para que
+  nadie regenere hasta que salga el número que quiere, y eso sigue vigente.
 
 ## 17. Manejo De Datos Sensibles
 
@@ -1038,7 +1063,36 @@ El **estado del job sigue en memoria**: lo que se recupera de un análisis
 caído no es el job, es la grabación. Reintentar crea un job nuevo sobre la
 misma grabación, y por eso `interview_recording` guarda `last_status` — una
 grabación que quedó en `running` sin job vivo es exactamente la señal de "esto
-se cayó, reintenta".
+se cayó, reintenta". Revisado el **2026-08-15** y confirmado: una tabla de
+jobs solo duplicaría esas columnas, y reanudar automáticamente al arrancar
+gastaría minutos de modelo que nadie pidió (y sobre una máquina donde quizá
+whisper sigue caído). Reintentar es una decisión del evaluador.
+
+### Cola: uno corriendo, los demás esperan (2026-08-15)
+
+Sigue ejecutándose **un** análisis a la vez —el modelo tiene una cola de
+concurrencia 1 y whisper corre en CPU; dos a la vez solo se estorbarían—,
+pero el segundo ya **no se rechaza**: queda `queued` con posición visible,
+se puede cancelar mientras espera y arranca solo cuando termina el anterior.
+Reglas:
+
+- Un job en cola **no retiene audio en RAM**: la grabación ya está en disco y
+  el runner la lee (o lee `transcript.json`) cuando le llega el turno. La
+  copia que subió el navegador se pone a cero en cuanto está guardada.
+- Al arrancar, el job **relee** grabación, preguntas y contexto del rol: si
+  mientras esperaba se puntuaron a mano todas las preguntas, falla con
+  `LIMIT_EXCEEDED` sin gastar una llamada; si se borró la grabación, falla
+  con `NOT_FOUND`.
+- Un candidato solo puede tener **un** job vivo (en cola o corriendo): dos
+  análisis sobre el mismo candidato se pisarían las propuestas.
+- Cola llena (5 esperando) → `LIMIT_EXCEEDED`, comprobado **antes** del rate
+  limit y de tocar disco: un rechazo no gasta cupo ni deja grabaciones.
+- El estado que enseña la pantalla por grabación es **derivado**: la fila
+  solo sabe decir `running`; cruzándola con el registro en memoria sale
+  `queued`, `running` o `interrupted` (fila en marcha, job inexistente: se
+  reinició el servidor). Antes la pantalla decía "interrumpido" también
+  mientras corría de verdad, y recargar la página perdía el progreso de
+  vista; ahora `activeJobId` permite reengancharse.
 
 Escritura **atómica** (`.tmp` + `rename`) en los dos archivos: el fallo que
 motivó todo esto es un proceso que muere a mitad del trabajo, y un

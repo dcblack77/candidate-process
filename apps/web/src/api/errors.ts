@@ -7,10 +7,10 @@ import { ApiError, NETWORK_ERROR_CODE } from "./client";
  */
 const MESSAGE_BY_CODE: Record<string, string> = {
     LIMIT_EXCEEDED:
-        "Se alcanzó el límite permitido para esta acción (p. ej. 5 análisis por candidato, 20 preguntas, 100 candidatos o 10 exportaciones por sesión).",
+        "Se alcanzó el límite permitido para esta acción (p. ej. 5 análisis por candidato, 20 preguntas, 100 candidatos o 10 exportaciones por hora).",
     NOT_FOUND: "No se encontró el recurso solicitado.",
     RATE_LIMITED:
-        "Demasiadas peticiones en la última hora (límites por hora: 20 extracciones, 30 análisis, 60 preguntas, 30 rankings). Espera un poco y vuelve a intentarlo.",
+        "Demasiadas peticiones en la última hora (límites por hora: 20 extracciones, 30 análisis, 60 preguntas, 30 rankings, 6 análisis de entrevista y 20 reanálisis). Espera un poco y vuelve a intentarlo.",
     INVALID_INPUT: "Los datos enviados no son válidos. Revisa el formulario.",
     LLM_UNAVAILABLE:
         "El modelo local no está disponible. Comprueba que el servidor del modelo esté arrancado e inténtalo de nuevo.",

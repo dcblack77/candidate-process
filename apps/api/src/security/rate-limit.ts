@@ -42,4 +42,21 @@ export class RateLimiter {
     reset(): void {
         this.hitsByKey.clear();
     }
+
+    /**
+     * Devuelve el último uso registrado de `key`, si lo hay dentro de la
+     * ventana. Para cuando la acción NO llegó a consumir lo que el límite
+     * protege: un análisis de entrevista cancelado antes de arrancar o caído
+     * porque el servicio de transcripción no estaba. Sin esto, seis fallos de
+     * infraestructura seguidos dejaban al usuario una hora sin poder
+     * reintentar sobre una entrevista que ya había ocurrido (§24).
+     */
+    refund(key: string): void {
+        const recent = this.hitsByKey.get(key);
+        if (!recent || recent.length === 0) {
+            return;
+        }
+        recent.pop();
+        this.hitsByKey.set(key, recent);
+    }
 }
