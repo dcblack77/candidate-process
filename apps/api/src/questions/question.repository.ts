@@ -108,6 +108,17 @@ export class QuestionRepository {
             .get(questionId) as InterviewQuestionRow;
     }
 
+    /**
+     * Borra una pregunta. Las propuestas del análisis de audio que cuelguen
+     * de ella se van por CASCADE (migración 005). El caso de uso ya comprobó
+     * pertenencia y que no tenga respuesta.
+     */
+    delete(questionId: string): void {
+        this.db
+            .prepare("DELETE FROM interview_question WHERE id = ?")
+            .run(questionId);
+    }
+
     /** Inserta el lote de preguntas generadas y devuelve las filas creadas. */
     insertMany(
         candidateId: string,

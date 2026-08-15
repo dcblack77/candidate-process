@@ -18,7 +18,11 @@ export const MAX_ANALYSIS_REGENERATIONS = 5;
 /** Máximo de preguntas de entrevista por candidato. */
 export const MAX_QUESTIONS_PER_CANDIDATE = 20;
 
-/** Máximo de exportaciones por sesión. */
+/**
+ * Máximo de exportaciones por sesión. Desde el 2026-08-15 "sesión" es una
+ * ventana deslizante de una hora (`export-session.ts`), no la vida del proceso
+ * de la API: antes, a la undécima exportación había que reiniciar el servidor.
+ */
 export const MAX_EXPORTS_PER_SESSION = 10;
 
 /**
@@ -82,13 +86,27 @@ export const MAX_RECORDINGS_PER_CANDIDATE = 5;
  */
 export const MAX_COMPARISON_CANDIDATES = 5;
 
+/**
+ * Análisis de entrevista que pueden esperar en cola detrás del que está
+ * corriendo (§24, 2026-08-15). Sigue habiendo UNO ejecutándose a la vez —el
+ * modelo y whisper no van más rápido por repartirse— pero el segundo ya no se
+ * rechaza: espera su turno y la pantalla se puede cerrar mientras tanto. El
+ * tope existe porque un análisis son ~15 min y a partir de aquí la espera es
+ * mayor que volver más tarde; el rate limit horario acota lo que entra.
+ */
+export const MAX_QUEUED_INTERVIEW_ANALYSES = 5;
+
 /** Ventana de rate limiting local: una hora, en milisegundos. */
 export const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 /** Límites por hora para cada acción costosa (BLUEPRINT §16). */
 export const RATE_LIMITS_PER_HOUR = {
-    /** Extracción de texto de CV. */
-    EXTRACT: 100, // era 20; cada CV cuenta uno, suelto o en lote (§16, 2026-08-15)
+    /**
+     * Extracción de texto de CV. Se mantiene en 100/h para que un proceso
+     * completo quepa en una carga masiva; cada CV cuenta uno, suelto o en lote.
+     * El límite anterior de 20/h hacía que un único lote agotara el cupo.
+     */
+    EXTRACT: 100,
     /** Análisis con el modelo local. */
     ANALYZE: 30,
     /** Generación de preguntas. */
@@ -98,7 +116,7 @@ export const RATE_LIMITS_PER_HOUR = {
     /**
      * Análisis de audio de entrevista. Muy por debajo del resto: cada uno son
      * ~15 minutos de CPU entre transcripción y modelo.
-    */
+     */
     INTERVIEW: 6,
     /**
      * Comparación cualitativa de candidatos con el modelo. Cada una es un
@@ -108,6 +126,13 @@ export const RATE_LIMITS_PER_HOUR = {
     COMPARE: 20,
     /** Detección de riesgos y lagunas (una llamada al modelo por candidato). */
     RISKS: 30,
+    /**
+     * Reanálisis desde una transcripción ya guardada (§24, 2026-08-15). Se
+     * salta whisper —la parte cara— y son solo llamadas al modelo, ~1-2 min:
+     * cobrarlo contra el cupo de 6 dejaba sin sitio a quien reintentaba tras
+     * un fallo del modelo o quería reevaluar con las preguntas nuevas.
+     */
+    INTERVIEW_REANALYSIS: 20,
 } as const;
 
 export type RateLimitedAction = keyof typeof RATE_LIMITS_PER_HOUR;

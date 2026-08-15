@@ -26,6 +26,23 @@ const RECORDING = {
     lastRunId: "job-viejo",
     lastStatus: "failed" as const,
     lastErrorCode: "LLM_UNAVAILABLE",
+    activeJobId: null,
+};
+
+/** Un job tal y como lo devuelve GET .../analysis/:jobId. */
+const JOB = {
+    candidateId: "c1",
+    jobId: "job-vivo",
+    recordingId: "r1",
+    status: "running" as const,
+    phase: "transcribing" as const,
+    progress: { done: 0, total: 3 },
+    queuePosition: null,
+    startedAt: "2026-08-10T10:00:00.000Z",
+    finishedAt: null,
+    stats: null,
+    error: null,
+    proposals: [],
 };
 
 function renderPanel() {
@@ -68,19 +85,7 @@ describe("grabaciones guardadas", () => {
             "GET /api/candidates/c1/interview/recordings": () =>
                 jsonResponse({ recordings: [RECORDING] }),
             "POST /api/candidates/c1/interview/analysis/from/r1": () =>
-                jsonResponse({
-                    candidateId: "c1",
-                    jobId: "job-nuevo",
-                    recordingId: "r1",
-                    status: "running",
-                    phase: "transcribing",
-                    progress: { done: 0, total: 3 },
-                    startedAt: "2026-08-10T10:00:00.000Z",
-                    finishedAt: null,
-                    stats: null,
-                    error: null,
-                    proposals: [],
-                }),
+                jsonResponse({ ...JOB, jobId: "job-nuevo" }),
         });
         renderPanel();
 
@@ -118,7 +123,7 @@ describe("grabaciones guardadas", () => {
                             ...RECORDING,
                             hasTranscript: false,
                             durationSec: null,
-                            lastStatus: "running",
+                            lastStatus: "interrupted",
                         },
                     ],
                 }),
@@ -180,5 +185,135 @@ describe("grabaciones guardadas", () => {
         expect(
             screen.queryByText("Grabaciones guardadas"),
         ).not.toBeInTheDocument();
+    });
+});
+
+describe("cola y reenganche (2026-08-15)", () => {
+    it("si hay un análisis vivo al entrar, se reengancha al progreso sin lanzar nada", async () => {
+        installMediaMocks({ secureContext: true });
+        const { calls } = installFetchMock({
+            "GET /api/health": () => jsonResponse(HEALTH_OK),
+            "GET /api/candidates/c1/interview/recordings": () =>
+                jsonResponse({
+                    recordings: [
+                        {
+                            ...RECORDING,
+                            lastStatus: "running",
+                            lastRunId: "job-vivo",
+                            activeJobId: "job-vivo",
+                        },
+                    ],
+                }),
+            "GET /api/candidates/c1/interview/analysis/job-vivo": () =>
+                jsonResponse({
+                    ...JOB,
+                    phase: "assessing",
+                    progress: { done: 2, total: 3 },
+                }),
+        });
+        renderPanel();
+
+        // Progreso real del job, no "interrumpido".
+        expect(
+            await screen.findByText(/Evaluando cada pregunta · 2\/3/),
+        ).toBeInTheDocument();
+        expect(screen.getByText("Analizando…")).toBeInTheDocument();
+        expect(screen.queryByText("Análisis interrumpido")).toBeNull();
+        // Ni un POST: solo se ha mirado.
+        expect(calls.some((call) => call.init.method === "POST")).toBe(false);
+    });
+
+    it("un análisis en cola dice cuántos hay por delante y se puede cancelar", async () => {
+        installMediaMocks({ secureContext: true });
+        const { calls } = installFetchMock({
+            "GET /api/health": () => jsonResponse(HEALTH_OK),
+            "GET /api/candidates/c1/interview/recordings": () =>
+                jsonResponse({ recordings: [RECORDING] }),
+            "POST /api/candidates/c1/interview/analysis/from/r1": () =>
+                jsonResponse({
+                    ...JOB,
+                    jobId: "job-cola",
+                    status: "queued",
+                    queuePosition: 2,
+                }),
+            "DELETE /api/candidates/c1/interview/analysis/job-cola": () =>
+                jsonResponse({
+                    ...JOB,
+                    jobId: "job-cola",
+                    status: "cancelled",
+                    finishedAt: "2026-08-10T10:01:00.000Z",
+                }),
+        });
+        renderPanel();
+
+        await userEvent.click(
+            await screen.findByRole("button", { name: /Reanalizar/i }),
+        );
+        expect(
+            await screen.findByText(/En cola · 1 por delante/),
+        ).toBeInTheDocument();
+
+        await userEvent.click(
+            screen.getByRole("button", { name: "Cancelar análisis" }),
+        );
+        expect(await screen.findByText("Análisis cancelado.")).toBeInTheDocument();
+        expect(
+            calls.some(
+                (call) =>
+                    call.init.method === "DELETE" &&
+                    call.url.endsWith("/analysis/job-cola"),
+            ),
+        ).toBe(true);
+    });
+
+    it("si el job desaparece a mitad de sondeo (reinicio) lo explica y ofrece reanalizar", async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            installMediaMocks({ secureContext: true });
+            let recordingsCalls = 0;
+            installFetchMock({
+                "GET /api/health": () => jsonResponse(HEALTH_OK),
+                "GET /api/candidates/c1/interview/recordings": () => {
+                    recordingsCalls += 1;
+                    return jsonResponse({
+                        recordings: [
+                            recordingsCalls > 1
+                                ? { ...RECORDING, lastStatus: "interrupted" }
+                                : RECORDING,
+                        ],
+                    });
+                },
+                "POST /api/candidates/c1/interview/analysis/from/r1": () =>
+                    jsonResponse({ ...JOB, jobId: "job-muerto" }),
+                "GET /api/candidates/c1/interview/analysis/job-muerto": () =>
+                    jsonResponse(
+                        {
+                            error: {
+                                code: "NOT_FOUND",
+                                message: "El recurso solicitado no existe.",
+                            },
+                        },
+                        404,
+                    ),
+            });
+            renderPanel();
+
+            await userEvent.click(
+                await screen.findByRole("button", { name: /Reanalizar/i }),
+            );
+            expect(
+                await screen.findByText(/Transcribiendo el audio/),
+            ).toBeInTheDocument();
+
+            await vi.advanceTimersByTimeAsync(2_500);
+            expect(
+                await screen.findByText(/el servidor se reinició/i),
+            ).toBeInTheDocument();
+            expect(
+                await screen.findByText("Análisis interrumpido"),
+            ).toBeInTheDocument();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

@@ -5,6 +5,7 @@ import {
     requireCurrentProcess,
     requireWritableProcess,
 } from "../process/process.repository";
+import { RateLimiter } from "../security/rate-limit";
 import { AuditRepository } from "../shared/audit";
 import { AppError } from "../shared/errors";
 import { assertValidId } from "../shared/ids";
@@ -22,12 +23,17 @@ import {
     JobStatus,
 } from "./job-registry";
 import { ProposalRepository } from "./proposal.repository";
+import { RecordingRepository } from "./recording.repository";
 
 /** Respuesta de las rutas de análisis (§24). Sin el AbortController. */
 export interface InterviewAnalysisDTO {
     candidateId: string;
     jobId: string;
+    /** Grabación sobre la que corre: desde ella se reintenta si esto muere. */
+    recordingId: string;
     status: JobStatus;
+    /** Posición en la cola (1 = el siguiente) mientras `status === "queued"`. */
+    queuePosition: number | null;
     phase: JobPhase;
     progress: { done: number; total: number };
     startedAt: string;
@@ -37,11 +43,16 @@ export interface InterviewAnalysisDTO {
     proposals: ProposalDTO[];
 }
 
-export function toAnalysisDTO(job: InterviewJob): InterviewAnalysisDTO {
+export function toAnalysisDTO(
+    job: InterviewJob,
+    queuePosition: number | null,
+): InterviewAnalysisDTO {
     return {
         candidateId: job.candidateId,
         jobId: job.id,
+        recordingId: job.recordingId,
         status: job.status,
+        queuePosition,
         phase: job.phase,
         progress: job.progress,
         startedAt: job.startedAt,
@@ -90,7 +101,8 @@ export class GetAnalysisUseCase {
         if (!this.candidates.findActiveInProcess(candidateId, selected.id)) {
             throw new AppError("NOT_FOUND");
         }
-        return toAnalysisDTO(requireJob(this.jobs, jobId, candidateId));
+        const job = requireJob(this.jobs, jobId, candidateId);
+        return toAnalysisDTO(job, this.jobs.queuePosition(job.id));
     }
 }
 
@@ -104,6 +116,9 @@ export class CancelAnalysisUseCase {
         private readonly candidates: CandidateRepository,
         @inject(InterviewJobRegistry)
         private readonly jobs: InterviewJobRegistry,
+        @inject(RecordingRepository)
+        private readonly recordings: RecordingRepository,
+        @inject(RateLimiter) private readonly rateLimiter: RateLimiter,
         @inject(AuditRepository) private readonly audit: AuditRepository,
     ) {}
 
@@ -115,17 +130,25 @@ export class CancelAnalysisUseCase {
         }
 
         const job = requireJob(this.jobs, jobId, candidateId);
-        const wasRunning = job.status === "running";
-        this.jobs.cancel(job.id);
-        if (wasRunning) {
+        const wasLive = job.status === "running" || job.status === "queued";
+        const { wasQueued } = this.jobs.cancel(job.id);
+        if (wasQueued) {
+            // Nunca llegó a correr: no gastó nada de lo que el cupo protege,
+            // y como no hay runner que lo anote, la grabación se marca aquí.
+            this.rateLimiter.refund(job.rateKey);
+            if (this.recordings.findById(job.recordingId)) {
+                this.recordings.markRun(job.recordingId, job.id, "cancelled");
+            }
+        }
+        if (wasLive) {
             this.audit.logEvent(
                 "interview.cancelled",
                 "candidate",
                 candidateId,
-                { jobId: job.id },
+                { jobId: job.id, wasQueued },
             );
         }
-        return toAnalysisDTO(job);
+        return toAnalysisDTO(job, null);
     }
 }
 

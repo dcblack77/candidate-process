@@ -167,7 +167,7 @@ async function analyze(
             `/candidates/${candidateId}/interview/analysis/${jobId}`,
         );
         expect(res.status).toBe(200);
-        if (res.body.status !== "running") {
+        if (res.body.status !== "running" && res.body.status !== "queued") {
             return res.body as Record<string, unknown>;
         }
         await new Promise((resolve) => setTimeout(resolve, 20));
@@ -556,6 +556,8 @@ describe("privacidad del audio y de la transcripción", () => {
                 "phase",
                 "progress",
                 "proposals",
+                "queuePosition",
+                "recordingId",
                 "startedAt",
                 "stats",
                 "status",

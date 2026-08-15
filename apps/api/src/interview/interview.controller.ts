@@ -46,9 +46,12 @@ interface StartedAnalysisDTO {
     jobId: string;
     /** Grabación sobre la que corre. Sirve para reintentar si esto falla. */
     recordingId: string;
-    status: "running";
+    /** `queued` si hay otro análisis corriendo: espera su turno (§24). */
+    status: "queued" | "running";
     phase: "transcribing";
     progress: { done: number; total: number };
+    /** Cuántos hay por delante si está en cola; `null` si ya corre. */
+    queuePosition: number | null;
     startedAt: string;
 }
 
@@ -103,9 +106,10 @@ export class InterviewController {
                 candidateId,
                 jobId: started.jobId,
                 recordingId: started.recordingId,
-                status: "running",
+                status: started.status,
                 phase: "transcribing",
                 progress: { done: 0, total: started.total },
+                queuePosition: started.queuePosition,
                 startedAt: started.startedAt,
             };
         } finally {
@@ -141,9 +145,10 @@ export class InterviewController {
             candidateId,
             jobId: started.jobId,
             recordingId: started.recordingId,
-            status: "running",
+            status: started.status,
             phase: "transcribing",
             progress: { done: 0, total: started.total },
+            queuePosition: started.queuePosition,
             startedAt: started.startedAt,
         };
     }

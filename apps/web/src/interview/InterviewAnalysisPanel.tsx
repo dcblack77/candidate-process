@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import { friendlyMessage } from "../api/errors";
 import { InterviewAnalysisDTO, PHASE_LABELS, RecordingDTO } from "../api/types";
 import { ErrorAlert, Spinner } from "../components/ui";
@@ -35,6 +35,30 @@ const POLL_MS = 2000;
 /** La misma dirección que hay en la barra, pero cifrada. */
 function secureOrigin(): string {
     return `https://${window.location.host}`;
+}
+
+/** Un job vivo es el que aún puede cambiar: esperando o corriendo. */
+function isLive(status: InterviewAnalysisDTO["status"]): boolean {
+    return status === "queued" || status === "running";
+}
+
+/**
+ * Qué decirle al evaluador cuando el job falla. Los mensajes del backend de
+ * este dominio son genéricos por construcción (§17: nunca llevan
+ * transcripción), así que los que explican una situación —"la grabación se
+ * borró", "ya estaban todas puntuadas"— se enseñan tal cual; los de
+ * infraestructura se traducen a qué levantar.
+ */
+function failureMessage(job: InterviewAnalysisDTO): string {
+    switch (job.error?.code) {
+        case "STT_UNAVAILABLE":
+            return "El servicio local de transcripción falló. Comprueba que el contenedor `voice-stt` esté levantado y reanaliza desde la grabación guardada.";
+        case "LIMIT_EXCEEDED":
+        case "NOT_FOUND":
+            return job.error.message;
+        default:
+            return "El análisis de la entrevista falló. Revisa que el modelo local esté disponible y reanaliza desde la grabación guardada.";
+    }
 }
 
 export function InterviewAnalysisPanel({
@@ -80,9 +104,38 @@ export function InterviewAnalysisPanel({
         };
     }, []);
 
-    // Sondeo mientras el análisis sigue vivo.
+    // Reenganche: si al entrar (o al recargar) hay un análisis vivo sobre
+    // alguna grabación de este candidato, se retoma el sondeo. Antes del
+    // 2026-08-15 recargar la página perdía el progreso de vista y la
+    // grabación se enseñaba como "interrumpida" mientras seguía corriendo.
     useEffect(() => {
-        if (!job || job.status !== "running") {
+        if (job) {
+            return;
+        }
+        const live = recordings.find((recording) => recording.activeJobId);
+        if (!live?.activeJobId) {
+            return;
+        }
+        let cancelled = false;
+        void api
+            .getInterviewAnalysis(candidateId, live.activeJobId)
+            .then((current) => {
+                if (!cancelled && isLive(current.status)) {
+                    setJob(current);
+                }
+            })
+            .catch(() => {
+                // Si ya no existe, la lista de grabaciones lo dirá al
+                // refrescarse: no hay nada que enganchar.
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [job, recordings, candidateId]);
+
+    // Sondeo mientras el análisis sigue vivo (en cola o corriendo).
+    useEffect(() => {
+        if (!job || !isLive(job.status)) {
             return;
         }
         const timer = setTimeout(() => {
@@ -93,7 +146,7 @@ export function InterviewAnalysisPanel({
                         job.jobId,
                     );
                     setJob(next);
-                    if (next.status !== "running") {
+                    if (!isLive(next.status)) {
                         // También al fallar: la grabación pasa a "el análisis
                         // falló" y desde ahí se reintenta.
                         await refreshRecordings();
@@ -102,8 +155,16 @@ export function InterviewAnalysisPanel({
                         await onFinished();
                     }
                 } catch (err) {
-                    setError(friendlyMessage(err));
+                    // Un 404 a mitad de sondeo es la firma de un reinicio del
+                    // servidor: el job vivía en memoria y ya no está, pero la
+                    // grabación sí, y desde ella se reanaliza.
+                    setError(
+                        err instanceof ApiError && err.code === "NOT_FOUND"
+                            ? "El análisis se interrumpió (el servidor se reinició). La grabación sigue guardada: reanalízala desde la lista de abajo."
+                            : friendlyMessage(err),
+                    );
                     setJob(null);
+                    await refreshRecordings();
                 }
             })();
         }, POLL_MS);
@@ -114,7 +175,7 @@ export function InterviewAnalysisPanel({
     const canRecord =
         capture.capabilities.microphone || capture.capabilities.tabAudio;
     const recording = capture.state === "recording";
-    const running = job?.status === "running";
+    const running = job !== null && isLive(job.status);
 
     async function send(
         tracks: { mic?: Blob; tab?: Blob },
@@ -218,14 +279,35 @@ export function InterviewAnalysisPanel({
 
             {running ? (
                 <div className="analysis-progress">
-                    <p>
-                        <Spinner /> {PHASE_LABELS[job.phase]} ·{" "}
-                        {job.progress.done}/{job.progress.total}
-                    </p>
-                    <p className="muted small">
-                        Puede tardar varios minutos. Mientras tanto el modelo
-                        está ocupado: analizar o generar preguntas irá lento.
-                    </p>
+                    {job.status === "queued" ? (
+                        <>
+                            <p>
+                                <Spinner /> En cola
+                                {job.queuePosition !== null &&
+                                job.queuePosition > 1
+                                    ? ` · ${job.queuePosition - 1} por delante`
+                                    : " · es el siguiente"}
+                            </p>
+                            <p className="muted small">
+                                Hay otro análisis de entrevista corriendo; este
+                                arrancará solo cuando termine. Puedes salir de
+                                esta pantalla: al volver se retoma el progreso.
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <p>
+                                <Spinner /> {PHASE_LABELS[job.phase]} ·{" "}
+                                {job.progress.done}/{job.progress.total}
+                            </p>
+                            <p className="muted small">
+                                Puede tardar varios minutos. Mientras tanto el
+                                modelo está ocupado: analizar o generar
+                                preguntas irá lento. Puedes salir de esta
+                                pantalla: al volver se retoma el progreso.
+                            </p>
+                        </>
+                    )}
                     <button
                         onClick={() =>
                             void api
@@ -335,13 +417,7 @@ export function InterviewAnalysisPanel({
                 <p className="muted small">Análisis cancelado.</p>
             )}
             {job?.status === "failed" && (
-                <ErrorAlert
-                    message={
-                        job.error?.code === "STT_UNAVAILABLE"
-                            ? "El servicio local de transcripción falló. Comprueba que el contenedor `voice-stt` esté levantado."
-                            : "El análisis de la entrevista falló. Revisa que el modelo local esté disponible e inténtalo de nuevo."
-                    }
-                />
+                <ErrorAlert message={failureMessage(job)} />
             )}
             <ErrorAlert message={error} />
 

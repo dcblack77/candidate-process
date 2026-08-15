@@ -9,6 +9,7 @@ import { AuditRepository } from "../shared/audit";
 import { AppError } from "../shared/errors";
 import { assertValidId } from "../shared/ids";
 import { RecordingDTO, toRecordingDTO } from "./interview.dto";
+import { InterviewJobRegistry } from "./job-registry";
 import { parseTracks, RecordingRepository } from "./recording.repository";
 import { recordingBytes, removeRecording } from "./recording-store";
 
@@ -30,10 +31,22 @@ export class ListRecordingsUseCase {
         private readonly candidates: CandidateRepository,
         @inject(RecordingRepository)
         private readonly recordings: RecordingRepository,
+        @inject(InterviewJobRegistry)
+        private readonly jobs: InterviewJobRegistry,
         @inject(ENV) private readonly env: AppEnv,
     ) {}
 
     execute(candidateId: unknown): { recordings: RecordingDTO[] } {
+        // El estado del último análisis se cruza con los jobs vivos: una fila
+        // en `running` cuyo job ya no existe es un análisis interrumpido.
+        const live = {
+            liveStatus: (jobId: string) => {
+                const status = this.jobs.find(jobId)?.status;
+                return status === "queued" || status === "running"
+                    ? status
+                    : undefined;
+            },
+        };
         assertValidId(candidateId);
         const selected = requireCurrentProcess(this.processes);
         if (!this.candidates.findActiveInProcess(candidateId, selected.id)) {
@@ -51,6 +64,7 @@ export class ListRecordingsUseCase {
                     row,
                     tracks,
                     recordingBytes(this.env.RECORDINGS_DIR, row.id, tracks),
+                    live,
                 );
             }),
         };

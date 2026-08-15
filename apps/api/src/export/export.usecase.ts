@@ -45,7 +45,7 @@ const MAX_STRENGTHS = 5;
  * - DECISIÓN documentada: extractedText se acepta como clave pero se ignora
  *   porque el texto extraído no se persiste (§04); si llega a true, el
  *   markdown incluye una nota explicándolo y NO cuenta como dato sensible.
- * - Límite §16: 10 exportaciones por sesión de la API (contador en memoria),
+ * - Límite §16: 10 exportaciones por hora (ventana deslizante en memoria),
  *   compartido por los dos formatos.
  * - La API NO escribe en disco: devuelve contenido y filename y la UI descarga.
  *
@@ -78,7 +78,7 @@ export class ExportUseCase {
         if (this.session.count >= MAX_EXPORTS_PER_SESSION) {
             throw new AppError(
                 "LIMIT_EXCEEDED",
-                "Se alcanzó el máximo de exportaciones de esta sesión.",
+                "Se alcanzó el máximo de exportaciones por hora. Espera un poco antes de exportar de nuevo.",
             );
         }
 
