@@ -210,6 +210,62 @@ export interface CvExtractResponseDTO {
     fileDeleted: true;
 }
 
+// ── Carga masiva de CVs (§16) ─────────────────────────────────────────────
+
+export type BulkImportJobStatus = "running" | "done" | "failed" | "cancelled";
+
+export type BulkImportItemStatus =
+    | "rejected"
+    | "queued"
+    | "summarizing"
+    | "summarized"
+    | "failed"
+    | "skipped"
+    | "cancelled";
+
+export interface CvBulkImportItemDTO {
+    /** Posición del archivo en la subida (0-based). */
+    index: number;
+    /** null si el archivo se rechazó antes de crear candidato. */
+    candidateId: string | null;
+    name: string | null;
+    status: BulkImportItemStatus;
+    errorCode: string | null;
+    extractedChars: number | null;
+    truncated: boolean | null;
+    llmWaits: number;
+}
+
+export interface CvBulkImportCountsDTO {
+    total: number;
+    rejected: number;
+    queued: number;
+    summarizing: number;
+    summarized: number;
+    failed: number;
+    skipped: number;
+    cancelled: number;
+}
+
+export interface CvBulkImportResponseDTO {
+    jobId: string;
+    processId: string;
+    status: BulkImportJobStatus;
+    startedAt: string;
+    finishedAt: string | null;
+    errorCode: string | null;
+    cancelRequested: boolean;
+    counts: CvBulkImportCountsDTO;
+    items: CvBulkImportItemDTO[];
+    filesDeleted: true;
+}
+
+/** Espejo de MAX_BULK_CV_FILES del backend. */
+export const MAX_BULK_CV_FILES = 30;
+
+/** Espejo de MAX_CV_MB del backend. */
+export const MAX_CV_MB = 10;
+
 // ── Scoring ────────────────────────────────────────────────────────────────
 
 export interface SuggestedCriterionScoreDTO {
@@ -277,6 +333,66 @@ export interface AddNoteResponseDTO {
     notesSaved: true;
 }
 
+// ── Riesgos y lagunas (§13) ───────────────────────────────────────────────
+
+export type RiskCategory =
+    | "role_gap"
+    | "exposure_without_results"
+    | "unproven_transition"
+    | "no_production_experience"
+    | "timeline_inconsistency"
+    | "single_environment"
+    | "vague_claim";
+
+export type RiskSeverity = "low" | "medium" | "high";
+
+export interface RiskVerificationStatsDTO {
+    risks: number;
+    gaps: number;
+    explicit: number;
+    inferred: number;
+    downgradedToInferred: number;
+}
+
+export interface RiskItemDTO {
+    category: RiskCategory;
+    criterion: Criterion;
+    severity: RiskSeverity;
+    concern: string;
+    evidence: EvidenceItem;
+    interviewCheck: string;
+}
+
+export interface GapItemDTO {
+    criterion: Criterion;
+    missing: string;
+    whyItMatters: string;
+    interviewCheck: string;
+}
+
+export interface RiskAnalysisDTO {
+    risks: RiskItemDTO[];
+    gaps: GapItemDTO[];
+    confidence: number;
+    stats: RiskVerificationStatsDTO;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface DetectRisksResponseDTO {
+    candidateId: string;
+    analysis: RiskAnalysisDTO;
+    regenerationsUsed: number;
+    regenerationsLimit: number;
+}
+
+export interface GetRisksResponseDTO {
+    candidateId: string;
+    analysis: RiskAnalysisDTO | null;
+    regenerationsUsed: number;
+    regenerationsLimit: number;
+}
+
 // ── Questions ──────────────────────────────────────────────────────────────
 
 export interface InterviewQuestionDTO {
@@ -301,6 +417,14 @@ export interface InterviewQuestionDTO {
 export interface GenerateQuestionsResponseDTO {
     candidateId: string;
     questions: InterviewQuestionDTO[];
+    questionsTotal: number;
+    questionsLimit: number;
+}
+
+/** Respuesta de DELETE /candidates/:id/questions/:questionId. */
+export interface DeleteQuestionResponseDTO {
+    id: string;
+    deleted: true;
     questionsTotal: number;
     questionsLimit: number;
 }
@@ -430,20 +554,28 @@ export interface RecordingDTO {
     durationSec: number | null;
     segments: number | null;
     lastRunId: string | null;
-    lastStatus: "running" | "done" | "failed" | "cancelled" | null;
+    lastStatus:
+        | "queued"
+        | "running"
+        | "interrupted"
+        | "done"
+        | "failed"
+        | "cancelled"
+        | null;
     lastErrorCode: string | null;
+    /** Job vivo (en cola o corriendo), para reenganchar el polling. */
+    activeJobId: string | null;
 }
 
 /** Estado de un análisis de audio en curso o terminado (§24). */
 export interface InterviewAnalysisDTO {
     candidateId: string;
     jobId: string;
-    /**
-     * Grabación sobre la que corre. Solo viene al LANZAR el análisis (POST):
-     * el sondeo posterior devuelve el estado del job, que no la conoce.
-     */
-    recordingId?: string;
-    status: "running" | "done" | "failed" | "cancelled";
+    /** Grabación sobre la que corre; permite reintentar tras un reinicio. */
+    recordingId: string;
+    status: "queued" | "running" | "done" | "failed" | "cancelled";
+    /** Posición 1-based mientras espera; null cuando ya corre o terminó. */
+    queuePosition: number | null;
     phase: "transcribing" | "routing" | "assessing" | "done";
     progress: { done: number; total: number };
     startedAt: string;
@@ -550,6 +682,52 @@ export interface RankingResponseDTO {
     scoreWeights: ScoreWeightsDTO;
     entries: RankingEntryDTO[];
     unscored: UnscoredCandidateDTO[];
+}
+
+// ── Comparación cualitativa (§15/§21) ─────────────────────────────────────
+
+export interface ComparedCandidateDTO {
+    ref: string;
+    candidateId: string;
+    name: string;
+    scores: Record<Criterion, number>;
+    cvScore: number;
+    overallScore: number;
+    provisional: boolean;
+    confidence: number | null;
+    interviewScore: number | null;
+    interviewByCriterion: Record<Criterion, CriterionInterviewDTO | null>;
+    verdicts: Record<Criterion, Verdict | null>;
+    pendingDoubts: string[];
+}
+
+export interface CriterionComparisonDTO {
+    leaders: string[];
+    analysis: string;
+}
+
+export interface ComparisonTieDTO {
+    candidateIds: string[];
+    whatWouldSeparate: string;
+}
+
+export interface ComparisonAnalysisDTO {
+    criteria: Record<Criterion, CriterionComparisonDTO>;
+    evidenceQuality: string;
+    profiles: string;
+    ties: ComparisonTieDTO[];
+    openQuestions: string[];
+    summary: string;
+}
+
+export interface ComparisonResponseDTO {
+    processId: string;
+    roleTitle: string;
+    generatedAt: string;
+    weights: Record<Criterion, number>;
+    candidates: ComparedCandidateDTO[];
+    comparison: ComparisonAnalysisDTO;
+    disclaimer: string;
 }
 
 // ── Export ─────────────────────────────────────────────────────────────────

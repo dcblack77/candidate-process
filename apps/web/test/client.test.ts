@@ -135,4 +135,36 @@ describe("api/client", () => {
             roleContext: null,
         });
     });
+
+    it("cablea comparación, riesgos y borrado de preguntas con sus rutas", async () => {
+        const { calls } = installFetchMock({
+            "POST /api/comparison": () => jsonResponse({}),
+            "POST /api/candidates/c1/risks": () => jsonResponse({}),
+            "GET /api/candidates/c1/risks": () => jsonResponse({}),
+            "DELETE /api/candidates/c1/questions/q1": () =>
+                jsonResponse({
+                    id: "q1",
+                    deleted: true,
+                    questionsTotal: 0,
+                    questionsLimit: 20,
+                }),
+        });
+
+        await api.compareCandidates(["c1", "c2"]);
+        await api.detectCandidateRisks("c1");
+        await api.getCandidateRisks("c1");
+        await api.deleteQuestion("c1", "q1");
+
+        expect(
+            calls.map((call) => `${call.init.method ?? "GET"} ${call.url}`),
+        ).toEqual([
+            "POST /api/comparison",
+            "POST /api/candidates/c1/risks",
+            "GET /api/candidates/c1/risks",
+            "DELETE /api/candidates/c1/questions/q1",
+        ]);
+        expect(JSON.parse(String(calls[0]!.init.body))).toEqual({
+            candidateIds: ["c1", "c2"],
+        });
+    });
 });

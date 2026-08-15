@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
 
@@ -37,6 +37,14 @@ export const SENTINEL_PERSONAL_DATA =
 export const TXT_MARKER = "MARCADOR-TXT-ORINOCO";
 export const PDF_MARKER = "MARCADOR-PDF-ORINOCO";
 export const DOCX_MARKER = "MARCADOR-DOCX-ORINOCO";
+
+/**
+ * Fecha fija de las entradas ZIP del DOCX. JSZip usa la hora actual por
+ * defecto; fijarla hace que el fixture sea reproducible byte a byte. Cada
+ * `file()` desactiva además `createFolders`: las carpetas implícitas serían
+ * entradas adicionales estampadas con la hora actual.
+ */
+const DOCX_ENTRY_DATE = new Date("2000-01-01T00:00:00.000Z");
 
 /** Líneas del CV sintético compartidas por los tres formatos. */
 function cvLines(marker: string): string[] {
@@ -131,6 +139,7 @@ export async function buildCvDocx(): Promise<Buffer> {
             '<Default Extension="xml" ContentType="application/xml"/>' +
             '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
             "</Types>",
+        { date: DOCX_ENTRY_DATE, createFolders: false },
     );
     zip.file(
         "_rels/.rels",
@@ -138,46 +147,29 @@ export async function buildCvDocx(): Promise<Buffer> {
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
             "</Relationships>",
+        { date: DOCX_ENTRY_DATE, createFolders: false },
     );
     zip.file(
         "word/document.xml",
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
             '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
             `<w:body>${paragraphs}</w:body></w:document>`,
+        { date: DOCX_ENTRY_DATE, createFolders: false },
     );
     return zip.generateAsync({ type: "nodebuffer" });
 }
 
-/**
- * Escribe los tres fixtures en test/fixtures/ si FALTAN. Con `force` los
- * reescribe siempre.
- *
- * Por qué no reescribir por defecto: el DOCX es un zip y JSZip estampa la
- * fecha de cada entrada, así que regenerarlo produce bytes distintos en cada
- * ejecución. Como los tests lo llamaban en cada `beforeAll`, la suite dejaba
- * el fixture versionado como modificado en el working tree (mismo tamaño,
- * distinto hash) y acababa colándose en commits. Los tests solo necesitan
- * que exista; regenerar a propósito es cosa del CLI de abajo.
- */
-export async function ensureFixtures(
-    dir: string = FIXTURES_DIR,
-    { force = false }: { force?: boolean } = {},
-): Promise<void> {
+/** Escribe (o reescribe) los tres fixtures reproducibles en test/fixtures/. */
+export async function ensureFixtures(dir: string = FIXTURES_DIR): Promise<void> {
     mkdirSync(dir, { recursive: true });
-    const write = (name: string, content: Buffer | string): void => {
-        const target = path.join(dir, name);
-        if (force || !existsSync(target)) {
-            writeFileSync(target, content);
-        }
-    };
-    write("cv-sample.txt", buildCvTxt());
-    write("cv-sample.pdf", buildCvPdf());
-    write("cv-sample.docx", await buildCvDocx());
+    writeFileSync(path.join(dir, "cv-sample.txt"), buildCvTxt());
+    writeFileSync(path.join(dir, "cv-sample.pdf"), buildCvPdf());
+    writeFileSync(path.join(dir, "cv-sample.docx"), await buildCvDocx());
 }
 
 /* Ejecutable directamente: pnpm --filter api exec tsx scripts/generate-fixtures.ts */
 if (require.main === module) {
-    void ensureFixtures(FIXTURES_DIR, { force: true }).then(() => {
+    void ensureFixtures().then(() => {
         console.info(`[fixtures] regenerados en ${FIXTURES_DIR}`);
     });
 }

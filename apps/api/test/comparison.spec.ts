@@ -2,30 +2,21 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { Server } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { AppExpress } from "@expressots/adapter-express";
 import { createModule, interfaces } from "@expressots/core";
 import supertest from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { AiModule } from "../src/ai/ai.module";
 import { CRITERIA } from "../src/ai/schemas/common";
-import { CandidatesModule } from "../src/candidates/candidates.module";
+import { App } from "../src/app";
 import {
     COMPARE_RATE_KEY,
     COMPARED_ACTION,
     COMPARISON_DISCLAIMER,
 } from "../src/comparison/compare-candidates.usecase";
-import { ComparisonModule } from "../src/comparison/comparison.module";
 import { Database, DB } from "../src/db/database";
 import { AppEnv, ENV, loadEnv } from "../src/env";
-import { InterviewModule } from "../src/interview/interview.module";
-import { ProcessModule } from "../src/process/process.module";
-import { QuestionsModule } from "../src/questions/questions.module";
-import { ScoringModule } from "../src/scoring/scoring.module";
 import { WEIGHTS } from "../src/scoring/weights";
-import { currentUserMiddleware } from "../src/security/current-user.middleware";
 import { RateLimiter } from "../src/security/rate-limit";
 import { AuditRepository } from "../src/shared/audit";
-import { errorHandler } from "../src/shared/error-handler";
 import { newId } from "../src/shared/ids";
 import {
     MAX_COMPARISON_CANDIDATES,
@@ -44,37 +35,9 @@ import { createTestDb } from "./helpers";
  * Integración de POST /comparison: supertest + DB :memory: + mock HTTP de
  * llama.cpp, con el prompt REAL del repo (prompts/compare-candidates.md).
  *
- * La app de este spec replica la de producción (mismos módulos, middlewares
- * y error handler) más ComparisonModule. Cuando el módulo esté registrado en
- * src/app.ts este harness puede sustituirse por createTestApp().
+ * Usa la App real con ComparisonModule registrado y sustituye únicamente el
+ * módulo transversal para trabajar con SQLite :memory: y el mock local.
  */
-
-class ComparisonTestApp extends AppExpress {
-    constructor(coreModule: interfaces.ContainerModule) {
-        super();
-        this.configContainer([
-            coreModule,
-            ProcessModule,
-            CandidatesModule,
-            AiModule,
-            ScoringModule,
-            InterviewModule,
-            QuestionsModule,
-            ComparisonModule,
-        ]);
-    }
-
-    protected override globalConfiguration(): void {}
-
-    override async configureServices(): Promise<void> {
-        this.Middleware.parse();
-        this.Middleware.add(currentUserMiddleware);
-        this.Middleware.setErrorHandler({ errorHandler, showStackTrace: false });
-    }
-
-    protected override async postServerInitialization(): Promise<void> {}
-    protected override async serverShutdown(): Promise<void> {}
-}
 
 type Responder = (
     request: RecordedRequest,
@@ -135,7 +98,7 @@ describe("POST /comparison", () => {
             bind(RateLimiter).toConstantValue(rateLimiter);
         });
 
-        const app = new ComparisonTestApp(TestCoreModule);
+        const app = new App(TestCoreModule);
         await app.listen(0);
         server = await app.getHttpServer();
         request = supertest(server);

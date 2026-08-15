@@ -7,11 +7,16 @@ import {
     CandidateDetailDTO,
     CandidateListItemDTO,
     CandidateScoreDTO,
+    ComparisonResponseDTO,
+    CvBulkImportResponseDTO,
     CvExtractResponseDTO,
+    DeleteQuestionResponseDTO,
+    DetectRisksResponseDTO,
     ExportInclude,
     ExportResponseDTO,
     ExportStructuredResponseDTO,
     GenerateQuestionsResponseDTO,
+    GetRisksResponseDTO,
     HealthResponseDTO,
     InterviewAnalysisDTO,
     ProcessListItemDTO,
@@ -53,7 +58,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     try {
         response = await fetch(`/api${path}`, init);
     } catch {
-        throw new ApiError(NETWORK_ERROR_CODE, "No se pudo contactar con la API local.", 0);
+        throw new ApiError(
+            NETWORK_ERROR_CODE,
+            "No se pudo contactar con la API local.",
+            0,
+        );
     }
 
     let body: unknown = null;
@@ -66,7 +75,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (!response.ok) {
         const error =
             typeof body === "object" && body !== null && "error" in body
-                ? (body as { error: { code?: unknown; message?: unknown } }).error
+                ? (body as { error: { code?: unknown; message?: unknown } })
+                      .error
                 : null;
         const code =
             error && typeof error.code === "string" ? error.code : "UNKNOWN";
@@ -169,6 +179,34 @@ export const api = {
             body: form,
         });
     },
+    /**
+     * Sube varios CVs de golpe. `names[i]` es el nombre elegido para el
+     * archivo i, o null para deducirlo del nombre del archivo.
+     */
+    startBulkCvImport(
+        files: File[],
+        names: Array<string | null>,
+    ): Promise<CvBulkImportResponseDTO> {
+        const form = new FormData();
+        if (names.some((name) => name !== null)) {
+            form.append("names", JSON.stringify(names));
+        }
+        for (const file of files) {
+            form.append("files", file);
+        }
+        return request("/candidates/cv/bulk", {
+            method: "POST",
+            body: form,
+        });
+    },
+    getBulkCvImport(jobId: string): Promise<CvBulkImportResponseDTO> {
+        return request(`/candidates/cv/bulk/${encodeURIComponent(jobId)}`);
+    },
+    cancelBulkCvImport(jobId: string): Promise<CvBulkImportResponseDTO> {
+        return request(`/candidates/cv/bulk/${encodeURIComponent(jobId)}`, {
+            method: "DELETE",
+        });
+    },
 
     // ── Scoring / notas ───────────────────────────────────────────────────
     analyzeCandidate(id: string): Promise<AnalyzeResponseDTO> {
@@ -187,6 +225,14 @@ export const api = {
             `/candidates/${encodeURIComponent(id)}/notes`,
             jsonInit("POST", { notes }),
         );
+    },
+    detectCandidateRisks(id: string): Promise<DetectRisksResponseDTO> {
+        return request(`/candidates/${encodeURIComponent(id)}/risks`, {
+            method: "POST",
+        });
+    },
+    getCandidateRisks(id: string): Promise<GetRisksResponseDTO> {
+        return request(`/candidates/${encodeURIComponent(id)}/risks`);
     },
 
     // ── Questions ─────────────────────────────────────────────────────────
@@ -214,6 +260,17 @@ export const api = {
             jsonInit("PATCH", body),
         );
     },
+    deleteQuestion(
+        candidateId: string,
+        questionId: string,
+    ): Promise<DeleteQuestionResponseDTO> {
+        return request(
+            `/candidates/${encodeURIComponent(candidateId)}/questions/${encodeURIComponent(questionId)}`,
+            {
+                method: "DELETE",
+            },
+        );
+    },
 
     // ── Entrevista asistida por audio (§24) ───────────────────────────────
     /**
@@ -235,7 +292,10 @@ export const api = {
         form.append("meta", JSON.stringify(meta));
         return request(
             `/candidates/${encodeURIComponent(candidateId)}/interview/analysis`,
-            { method: "POST", body: form },
+            {
+                method: "POST",
+                body: form,
+            },
         );
     },
     getInterviewAnalysis(
@@ -256,7 +316,9 @@ export const api = {
         );
     },
     /** Grabaciones conservadas de un candidato (§24). */
-    listRecordings(candidateId: string): Promise<{ recordings: RecordingDTO[] }> {
+    listRecordings(
+        candidateId: string,
+    ): Promise<{ recordings: RecordingDTO[] }> {
         return request(
             `/candidates/${encodeURIComponent(candidateId)}/interview/recordings`,
         );
@@ -303,6 +365,9 @@ export const api = {
     // ── Ranking / export ──────────────────────────────────────────────────
     getRanking(): Promise<RankingResponseDTO> {
         return request("/ranking");
+    },
+    compareCandidates(candidateIds: string[]): Promise<ComparisonResponseDTO> {
+        return request("/comparison", jsonInit("POST", { candidateIds }));
     },
     /** Export en markdown: vista previa y descarga (§19). */
     exportReport(include: ExportInclude): Promise<ExportResponseDTO> {

@@ -1,15 +1,14 @@
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { api, ApiError } from "../api/client";
+import { friendlyMessage } from "../api/errors";
 import {
-    bulkCvApi,
     BulkImportItemStatus,
     CvBulkImportItemDTO,
     CvBulkImportResponseDTO,
     MAX_BULK_CV_FILES,
     MAX_CV_MB,
-} from "../api/bulk-cv";
-import { ApiError } from "../api/client";
-import { friendlyMessage } from "../api/errors";
+} from "../api/types";
 import { ErrorAlert, Spinner } from "../components/ui";
 
 /** Intervalo del polling del lote mientras está en curso. */
@@ -106,7 +105,7 @@ export function BulkCvUploadPanel({
         let stopped = false;
         const tick = async () => {
             try {
-                const next = await bulkCvApi.status(jobId);
+                const next = await api.getBulkCvImport(jobId);
                 if (!stopped) {
                     setJob(next);
                 }
@@ -171,7 +170,7 @@ export function BulkCvUploadPanel({
         setSubmitting(true);
         setError(null);
         try {
-            const started = await bulkCvApi.start(
+            const started = await api.startBulkCvImport(
                 selected.map((entry) => entry.file),
                 selected.map((entry) =>
                     entry.name.trim().length > 0 ? entry.name.trim() : null,
@@ -202,7 +201,7 @@ export function BulkCvUploadPanel({
         }
         setCancelling(true);
         try {
-            setJob(await bulkCvApi.cancel(job.jobId));
+            setJob(await api.cancelBulkCvImport(job.jobId));
         } catch (err) {
             setError(friendlyMessage(err));
         } finally {
@@ -253,9 +252,7 @@ export function BulkCvUploadPanel({
                                     <Spinner /> Subiendo…
                                 </>
                             ) : (
-                                `Importar ${selected.length} CV${
-                                    selected.length === 1 ? "" : "s"
-                                }`
+                                `Importar ${selected.length} CV${selected.length === 1 ? "" : "s"}`
                             )}
                         </button>
                         <button
@@ -271,9 +268,9 @@ export function BulkCvUploadPanel({
             <ErrorAlert message={error} />
             {blocked.length > 0 && (
                 <div className="alert alert-warning" role="alert">
-                    Quita los archivos marcados antes de importar: un archivo
-                    de más de {MAX_CV_MB} MB o con formato no admitido detiene
-                    el lote entero.
+                    Quita los archivos marcados antes de importar: un archivo de
+                    más de {MAX_CV_MB} MB o con formato no admitido detiene el
+                    lote entero.
                 </div>
             )}
 
@@ -310,7 +307,10 @@ export function BulkCvUploadPanel({
                                             placeholder="Se deduce del archivo"
                                             aria-label={`Nombre del candidato para ${entry.file.name}`}
                                             onChange={(e) =>
-                                                updateName(index, e.target.value)
+                                                updateName(
+                                                    index,
+                                                    e.target.value,
+                                                )
                                             }
                                             disabled={submitting}
                                         />
@@ -368,7 +368,8 @@ function BulkJobView({
                 <strong>
                     {running ? (
                         <>
-                            <Spinner /> Resumiendo CVs: {finished} de {attempted}
+                            <Spinner /> Resumiendo CVs: {finished} de{" "}
+                            {attempted}
                             {job.cancelRequested ? " (cancelando…)" : ""}
                         </>
                     ) : job.status === "done" ? (
@@ -398,9 +399,8 @@ function BulkJobView({
             {job.status === "failed" && job.errorCode === "LLM_UNAVAILABLE" && (
                 <div className="alert alert-error" role="alert">
                     El modelo local dejó de responder y el lote se detuvo. Los
-                    candidatos que faltaban están creados sin CV
-                    («Pendiente»): arranca el modelo y sube su CV desde su
-                    fila, o bórralos.
+                    candidatos que faltaban están creados sin CV («Pendiente»):
+                    arranca el modelo y sube su CV desde su fila, o bórralos.
                 </div>
             )}
             {counts.rejected > 0 && (

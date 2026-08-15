@@ -2,7 +2,6 @@ import { Server } from "node:http";
 import { createModule, interfaces } from "@expressots/core";
 import supertest from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { AiModule } from "../src/ai/ai.module";
 import {
     DETECT_RISKS_JSON_SCHEMA,
     DetectRisksResult,
@@ -11,22 +10,12 @@ import {
     MAX_RISK_TEXT_LENGTH,
 } from "../src/ai/schemas/detect-risks";
 import { App } from "../src/app";
-import { CandidatesModule } from "../src/candidates/candidates.module";
-import { CvModule } from "../src/cv/cv.module";
 import { Database, DB } from "../src/db/database";
 import { AppEnv, ENV, loadEnv } from "../src/env";
-import { ExportModule } from "../src/export/export.module";
-import { HealthModule } from "../src/health/health.module";
-import { InterviewModule } from "../src/interview/interview.module";
-import { ProcessModule } from "../src/process/process.module";
-import { QuestionsModule } from "../src/questions/questions.module";
-import { RankingModule } from "../src/ranking/ranking.module";
 import {
     RISKS_DETECTED_ACTION,
     RISKS_RATE_KEY,
 } from "../src/risks/detect-risks.usecase";
-import { RisksModule } from "../src/risks/risks.module";
-import { ScoringModule } from "../src/scoring/scoring.module";
 import { RateLimiter } from "../src/security/rate-limit";
 import { AuditRepository } from "../src/shared/audit";
 import {
@@ -46,11 +35,8 @@ import { createTestDb } from "./helpers";
  * Integración de POST/GET /candidates/:id/risks sobre la app real: supertest
  * + DB :memory: + mock HTTP de llama.cpp.
  *
- * NOTA DE CABLEADO: RisksModule todavía no está registrado en src/app.ts (lo
- * cablea el coordinador al integrar las ramas). Hasta entonces este spec
- * monta la App real y vuelve a configurar su contenedor con los mismos
- * módulos MÁS RisksModule. Cuando app.ts lo incluya, este bloque se puede
- * sustituir por `new App(TestCoreModule)` sin tocar ningún test.
+ * Usa la App real con RisksModule registrado y sustituye únicamente el módulo
+ * transversal para trabajar con SQLite :memory: y el mock local del modelo.
  */
 
 const SEEDED_SUMMARY = {
@@ -129,21 +115,6 @@ describe("/candidates/:id/risks", () => {
         });
 
         const app = new App(TestCoreModule);
-        // Ver NOTA DE CABLEADO arriba.
-        app.configContainer([
-            TestCoreModule,
-            HealthModule,
-            ProcessModule,
-            CandidatesModule,
-            CvModule,
-            AiModule,
-            ScoringModule,
-            InterviewModule,
-            QuestionsModule,
-            RankingModule,
-            ExportModule,
-            RisksModule,
-        ]);
         await app.listen(0);
         server = await app.getHttpServer();
         request = supertest(server);

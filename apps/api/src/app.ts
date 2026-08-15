@@ -5,6 +5,7 @@ import { Application as ExpressApplication } from "express";
 import { AiModule } from "./ai/ai.module";
 import { CoreModule } from "./app.module";
 import { CandidatesModule } from "./candidates/candidates.module";
+import { ComparisonModule } from "./comparison/comparison.module";
 import { CvModule } from "./cv/cv.module";
 import { loadEnv } from "./env";
 import { ExportModule } from "./export/export.module";
@@ -13,6 +14,7 @@ import { InterviewModule } from "./interview/interview.module";
 import { ProcessModule } from "./process/process.module";
 import { QuestionsModule } from "./questions/questions.module";
 import { RankingModule } from "./ranking/ranking.module";
+import { RisksModule } from "./risks/risks.module";
 import { ScoringModule } from "./scoring/scoring.module";
 import { currentUserMiddleware } from "./security/current-user.middleware";
 import { errorHandler } from "./shared/error-handler";
@@ -50,6 +52,8 @@ export class App extends AppExpress {
             InterviewModule,
             QuestionsModule,
             RankingModule,
+            ComparisonModule,
+            RisksModule,
             ExportModule,
         ]);
     }
