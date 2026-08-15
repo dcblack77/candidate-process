@@ -8,3 +8,4 @@ export * from "./summarize-cv";
 export * from "./score-candidate";
 export * from "./generate-questions";
 export * from "./compare-candidates";
+export * from "./detect-risks";

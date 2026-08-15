@@ -35,6 +35,10 @@ Los tests del backend usan SQLite `:memory:` y un mock HTTP de llama.cpp — nun
 - Límite de 5 regeneraciones de análisis = COUNT de `app_event` con `action='candidate.analyzed'`; 20 preguntas = COUNT en tabla; 10 exports/sesión = contador en memoria.
 - Errores: `AppError` con códigos tipados (`shared/errors.ts`) → `{error:{code,message}}`; los errores no controlados se loguean sin mensaje (solo tipo + frames).
 
+## Riesgos y lagunas (§13, 2026-08-15)
+
+`apps/api/src/risks/`: `POST/GET /candidates/:id/risks` consume `prompts/detect-risks-and-gaps.md` sobre el `cv_summary` (+ título y contexto del rol) y persiste UNA fila por candidato en `candidate_risk_analysis` (migración 007). Dos listas separadas: `risks` (lo que el resumen SÍ dice y preocupa, con `evidence {text,type}`) y `gaps` (lo que NO permite saber, sin evidencia). **`risks/risk-verifier.ts` es la pieza crítica**: rebaja a `inferred` toda evidencia `explicit` que no case (por raíces de términos, umbral 0,6) con el resumen ni con el contexto del rol; nunca borra el riesgo. Límite 5 por candidato (`candidate.risks_detected` en app_event) y 30/hora. Es material para la entrevista: no escribe `candidate_score` ni afecta al ranking.
+
 ## Entrevista asistida por audio (§24, 2026-08-07)
 
 Subir la grabación de una entrevista → transcribir en local → **proponer** nota y notas para las preguntas sin puntuar, incluidas las que el candidato abordó sin que se le preguntara. Motivación: la nota de entrevista pesa el 70% del score final y las preguntas en blanco distorsionan el ranking.

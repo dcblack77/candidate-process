@@ -139,7 +139,14 @@ describe("prompts/ del repo", () => {
             },
         ],
         ["compare-candidates", { candidates_json: "[]", role_title: "ROL" }],
-        ["detect-risks-and-gaps", { cv_summary_json: "{}", role_title: "ROL" }],
+        [
+            "detect-risks-and-gaps",
+            {
+                cv_summary_json: "{}",
+                role_title: "ROL",
+                role_context: "CONTEXTO",
+            },
+        ],
     ];
 
     it.each(cases)(
