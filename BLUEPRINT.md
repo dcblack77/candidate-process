@@ -268,6 +268,7 @@ PATCH  /candidates/:id/score
 POST   /candidates/:id/notes
 
 GET    /ranking
+POST   /comparison           # compara 2-5 candidatos analizados (lectura, no persiste)
 POST   /export
 ```
 
@@ -627,6 +628,7 @@ Límites recomendados:
 | Regeneraciones de análisis por candidato | 5 |
 | Preguntas por candidato | 20 |
 | Exportaciones por sesión | 10 |
+| Candidatos por comparación | 5 |
 | Tamaño máximo por pista de audio | 25 MB |
 | Caracteres de transcripción por entrevista | 120.000 (~2 h) |
 | Citas persistidas por propuesta | 3 de 300 caracteres |
@@ -639,6 +641,7 @@ Rate limiting local:
 | Análisis con Gemma4-e2b | 30 por hora |
 | Generación de preguntas | 60 por hora |
 | Regeneración de ranking | 30 por hora |
+| Comparación de candidatos con Gemma4-e2b | 20 por hora |
 | Análisis de audio de entrevista | 6 por hora |
 
 Aunque sea local, estos límites evitan bloqueos, abuso accidental y consumo excesivo del modelo.
@@ -890,6 +893,17 @@ ni en el estado del router (§17) y la vista NUNCA vuelve a llamar a la API
 - Evidencias.
 - Dudas.
 - Ranking.
+- Comparación cualitativa con el modelo (`POST /comparison`, prompt
+  `compare-candidates`): entre 2 y 5 candidatos del proceso seleccionado con
+  análisis completo. Es una **lectura** (funciona sobre procesos archivados)
+  y **no se persiste**: es un derivado de los análisis que quedaría obsoleto
+  con cualquier edición de puntuaciones; el coste lo acota el rate limit. El
+  modelo señala a los candidatos por referencias cortas (`C1`, `C2`…) que
+  entran como `enum` en la gramática de salida y el backend resuelve a ids;
+  no recalcula puntuaciones ni decide (§01). Al modelo viajan resumen
+  profesional, puntuaciones, veredictos y notas de entrevista, rationale y
+  evidencias del análisis y dudas pendientes; nunca notas privadas ni el
+  texto de las respuestas (§17).
 
 ### Exportar
 
